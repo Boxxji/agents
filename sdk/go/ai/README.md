@@ -242,7 +242,7 @@ if err := response.Into(&result); err != nil {
 
 ## Examples
 
-See the [examples/ai-agent](../examples/ai-agent/) directory for complete examples including:
+See the [examples/go_agent_nodes](../../../examples/go_agent_nodes/) directory for complete examples including:
 - Simple text responses
 - Structured outputs
 - Sentiment analysis
