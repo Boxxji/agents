@@ -4164,6 +4164,9 @@ func (ls *LocalStorage) executeRegisterAgent(ctx context.Context, q DBTX, agent 
 	return nil
 }
 
+// ErrAgentNodeNotFound is returned by GetAgent when no node has the requested ID.
+var ErrAgentNodeNotFound = errors.New("agent node not found")
+
 // GetAgent retrieves an agent node record from SQLite by ID.
 func (ls *LocalStorage) GetAgent(ctx context.Context, id string) (*types.AgentNode, error) {
 	// Check context cancellation early
@@ -4193,7 +4196,7 @@ func (ls *LocalStorage) GetAgent(ctx context.Context, id string) (*types.AgentNo
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("agent node with ID '%s' not found", id)
+			return nil, fmt.Errorf("%w: ID '%s'", ErrAgentNodeNotFound, id)
 		}
 		return nil, fmt.Errorf("failed to get agent node with ID '%s': %w", id, err)
 	}
