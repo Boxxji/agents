@@ -332,37 +332,37 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Role | Level | Model | Description | Specialists Coordinated |
 |------|-------|-------|-------------|------------------------|
-| [staff-engineer](agents/staff-engineer.md) | IC6/L6 | opus | Platform architecture, company-wide initiatives | architect-review, cloud-architect, kubernetes-architect, terraform-specialist |
-| [senior-engineer](agents/senior-engineer.md) | IC5/L5 | sonnet | Complex refactoring, performance optimization | performance-engineer, database-optimizer, security-auditor |
-| [full-stack-engineer](agents/full-stack-engineer.md) | IC4/L4 | sonnet | End-to-end feature development | backend-architect, frontend-developer, database-architect, deployment-engineer |
+| [staff-engineer](.hanzo/agents/definitions/staff-engineer.md) | IC6/L6 | opus | Platform architecture, company-wide initiatives | architect-review, cloud-architect, kubernetes-architect, terraform-specialist |
+| [senior-engineer](.hanzo/agents/definitions/senior-engineer.md) | IC5/L5 | sonnet | Complex refactoring, performance optimization | performance-engineer, database-optimizer, security-auditor |
+| [full-stack-engineer](.hanzo/agents/definitions/full-stack-engineer.md) | IC4/L4 | sonnet | End-to-end feature development | backend-architect, frontend-developer, database-architect, deployment-engineer |
 
 ### Engineering Specializations
 
 | Role | Model | Description | Key Capabilities | Specialists Coordinated |
 |------|-------|-------------|------------------|------------------------|
-| [devops](agents/devops.md) | opus | Cloud infrastructure, K8s, IaC | AWS/GCP/Azure, Terraform, Kubernetes, networking, cost optimization | cloud-architect, kubernetes-architect, terraform-specialist, network-engineer |
-| [security-engineer](agents/security-engineer.md) | opus | Security audits, compliance | OWASP Top 10, OAuth2, SOC2/GDPR/HIPAA, penetration testing | security-auditor, backend/frontend/mobile-security-coder |
-| [devops-engineer](agents/devops-engineer.md) | sonnet | CI/CD, production ops, SRE | GitHub Actions, canary deploys, SLI/SLO, incident response | devops-troubleshooter, deployment-engineer, incident-responder, observability-engineer |
-| [backend-engineer](agents/backend-engineer.md) | sonnet | APIs, microservices, databases | FastAPI, REST/GraphQL, PostgreSQL, event-driven architecture | backend-architect, database-architect, api-documenter |
-| [frontend-engineer](agents/frontend-engineer.md) | sonnet | React/Next.js, UI/UX | React 18+, Next.js 14+, @hanzo/ui, Core Web Vitals, accessibility | frontend-developer, ui-ux-designer, ui-visual-validator |
-| [data-engineer](agents/data-engineer.md) | sonnet | ETL, data warehouses | Airflow, dbt, Kafka, Snowflake/BigQuery, Great Expectations | data-engineer (specialist), database-architect, sql-pro |
-| [ml-engineer](agents/ml-engineer.md) | opus | ML models, MLOps | PyTorch, MLflow, RAG systems, LLM fine-tuning, model serving | ml-engineer (specialist), mlops-engineer, ai-engineer, data-scientist |
-| [qa-engineer](agents/qa-engineer.md) | sonnet | Test automation, QA | Jest/Pytest, Playwright, TDD, k6 load testing, quality gates | test-automator, tdd-orchestrator, debugger, error-detective |
-| [platform-engineer](agents/platform-engineer.md) | opus | Developer platforms | Self-service deployment, CLIs, GitOps, service catalogs | kubernetes-architect, terraform-specialist, deployment-engineer, dx-optimizer |
-| [mobile-engineer](agents/mobile-engineer.md) | sonnet | iOS/Android apps | SwiftUI, Jetpack Compose, React Native, Flutter, offline-first | mobile-developer, ios-developer, flutter-expert |
+| [devops](.hanzo/agents/definitions/devops.md) | opus | Cloud infrastructure, K8s, IaC | AWS/GCP/Azure, Terraform, Kubernetes, networking, cost optimization | cloud-architect, kubernetes-architect, terraform-specialist, network-engineer |
+| [security-engineer](.hanzo/agents/definitions/security-engineer.md) | opus | Security audits, compliance | OWASP Top 10, OAuth2, SOC2/GDPR/HIPAA, penetration testing | security-auditor, backend/frontend/mobile-security-coder |
+| [devops-engineer](.hanzo/agents/definitions/devops-engineer.md) | sonnet | CI/CD, production ops, SRE | GitHub Actions, canary deploys, SLI/SLO, incident response | devops-troubleshooter, deployment-engineer, incident-responder, observability-engineer |
+| [backend-engineer](.hanzo/agents/definitions/backend-engineer.md) | sonnet | APIs, microservices, databases | FastAPI, REST/GraphQL, PostgreSQL, event-driven architecture | backend-architect, database-architect, api-documenter |
+| [frontend-engineer](.hanzo/agents/definitions/frontend-engineer.md) | sonnet | React/Next.js, UI/UX | React 18+, Next.js 14+, @hanzo/ui, Core Web Vitals, accessibility | frontend-developer, ui-ux-designer, ui-visual-validator |
+| [data-engineer](.hanzo/agents/definitions/data-engineer.md) | sonnet | ETL, data warehouses | Airflow, dbt, Kafka, Snowflake/BigQuery, Great Expectations | data-engineer (specialist), database-architect, sql-pro |
+| [ml-engineer](.hanzo/agents/definitions/ml-engineer.md) | opus | ML models, MLOps | PyTorch, MLflow, RAG systems, LLM fine-tuning, model serving | ml-engineer (specialist), mlops-engineer, ai-engineer, data-scientist |
+| [qa-engineer](.hanzo/agents/definitions/qa-engineer.md) | sonnet | Test automation, QA | Jest/Pytest, Playwright, TDD, k6 load testing, quality gates | test-automator, tdd-orchestrator, debugger, error-detective |
+| [platform-engineer](.hanzo/agents/definitions/platform-engineer.md) | opus | Developer platforms | Self-service deployment, CLIs, GitOps, service catalogs | kubernetes-architect, terraform-specialist, deployment-engineer, dx-optimizer |
+| [mobile-engineer](.hanzo/agents/definitions/mobile-engineer.md) | sonnet | iOS/Android apps | SwiftUI, Jetpack Compose, React Native, Flutter, offline-first | mobile-developer, ios-developer, flutter-expert |
 
 ### Management & Leadership
 
 | Role | Model | Description | Specialists Coordinated |
 |------|-------|-------------|------------------------|
-| [tech-lead](agents/tech-lead.md) | sonnet | Sprint planning, team coordination, technical decisions | Backend-architect, frontend-developer, database-optimizer, deployment-engineer |
+| [tech-lead](.hanzo/agents/definitions/tech-lead.md) | sonnet | Sprint planning, team coordination, technical decisions | Backend-architect, frontend-developer, database-optimizer, deployment-engineer |
 
 ### Product & Content
 
 | Role | Model | Description | Specialists Coordinated |
 |------|-------|-------------|------------------------|
-| [product-manager](agents/product-manager.md) | sonnet | Product strategy, roadmap, PRDs | business-analyst, ui-ux-designer, data-scientist |
-| [technical-writer](agents/technical-writer.md) | sonnet | API docs, tutorials, developer education | docs-architect, api-documenter, tutorial-engineer, mermaid-expert |
+| [product-manager](.hanzo/agents/definitions/product-manager.md) | sonnet | Product strategy, roadmap, PRDs | business-analyst, ui-ux-designer, data-scientist |
+| [technical-writer](.hanzo/agents/definitions/technical-writer.md) | sonnet | API docs, tutorials, developer education | docs-architect, api-documenter, tutorial-engineer, mermaid-expert |
 
 **Usage Examples:**
 ```bash
@@ -403,23 +403,23 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [backend-architect](agents/backend-architect.md) | opus | RESTful API design, microservice boundaries, database schemas |
-| [frontend-developer](agents/frontend-developer.md) | sonnet | React components, responsive layouts, client-side state management |
-| [graphql-architect](agents/graphql-architect.md) | opus | GraphQL schemas, resolvers, federation architecture |
-| [architect-reviewer](agents/architect-review.md) | opus | Architectural consistency analysis and pattern validation |
-| [cloud-architect](agents/cloud-architect.md) | opus | AWS/Azure/GCP infrastructure design and cost optimization |
-| [hybrid-cloud-architect](agents/hybrid-cloud-architect.md) | opus | Multi-cloud strategies across cloud and on-premises environments |
-| [kubernetes-architect](agents/kubernetes-architect.md) | opus | Cloud-native infrastructure with Kubernetes and GitOps |
+| [backend-architect](.hanzo/agents/definitions/backend-architect.md) | opus | RESTful API design, microservice boundaries, database schemas |
+| [frontend-developer](.hanzo/agents/definitions/frontend-developer.md) | sonnet | React components, responsive layouts, client-side state management |
+| [graphql-architect](.hanzo/agents/definitions/graphql-architect.md) | opus | GraphQL schemas, resolvers, federation architecture |
+| [architect-reviewer](.hanzo/agents/definitions/architect-review.md) | opus | Architectural consistency analysis and pattern validation |
+| [cloud-architect](.hanzo/agents/definitions/cloud-architect.md) | opus | AWS/Azure/GCP infrastructure design and cost optimization |
+| [hybrid-cloud-architect](.hanzo/agents/definitions/hybrid-cloud-architect.md) | opus | Multi-cloud strategies across cloud and on-premises environments |
+| [kubernetes-architect](.hanzo/agents/definitions/kubernetes-architect.md) | opus | Cloud-native infrastructure with Kubernetes and GitOps |
 
 #### UI/UX & Mobile
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [ui-ux-designer](agents/ui-ux-designer.md) | sonnet | Interface design, wireframes, design systems |
-| [ui-visual-validator](agents/ui-visual-validator.md) | sonnet | Visual regression testing and UI verification |
-| [mobile-developer](agents/mobile-developer.md) | sonnet | React Native and Flutter application development |
-| [ios-developer](agents/ios-developer.md) | sonnet | Native iOS development with Swift/SwiftUI |
-| [flutter-expert](agents/flutter-expert.md) | sonnet | Advanced Flutter development with state management |
+| [ui-ux-designer](.hanzo/agents/definitions/ui-ux-designer.md) | sonnet | Interface design, wireframes, design systems |
+| [ui-visual-validator](.hanzo/agents/definitions/ui-visual-validator.md) | sonnet | Visual regression testing and UI verification |
+| [mobile-developer](.hanzo/agents/definitions/mobile-developer.md) | sonnet | React Native and Flutter application development |
+| [ios-developer](.hanzo/agents/definitions/ios-developer.md) | sonnet | Native iOS development with Swift/SwiftUI |
+| [flutter-expert](.hanzo/agents/definitions/flutter-expert.md) | sonnet | Advanced Flutter development with state management |
 
 ### Programming Languages
 
@@ -427,39 +427,39 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [c-pro](agents/c-pro.md) | sonnet | System programming with memory management and OS interfaces |
-| [cpp-pro](agents/cpp-pro.md) | sonnet | Modern C++ with RAII, smart pointers, STL algorithms |
-| [rust-pro](agents/rust-pro.md) | sonnet | Memory-safe systems programming with ownership patterns |
-| [golang-pro](agents/golang-pro.md) | sonnet | Concurrent programming with goroutines and channels |
+| [c-pro](.hanzo/agents/definitions/c-pro.md) | sonnet | System programming with memory management and OS interfaces |
+| [cpp-pro](.hanzo/agents/definitions/cpp-pro.md) | sonnet | Modern C++ with RAII, smart pointers, STL algorithms |
+| [rust-pro](.hanzo/agents/definitions/rust-pro.md) | sonnet | Memory-safe systems programming with ownership patterns |
+| [golang-pro](.hanzo/agents/definitions/golang-pro.md) | sonnet | Concurrent programming with goroutines and channels |
 
 #### Web & Application
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [javascript-pro](agents/javascript-pro.md) | sonnet | Modern JavaScript with ES6+, async patterns, Node.js |
-| [typescript-pro](agents/typescript-pro.md) | sonnet | Advanced TypeScript with type systems and generics |
-| [python-pro](agents/python-pro.md) | sonnet | Python development with advanced features and optimization |
-| [ruby-pro](agents/ruby-pro.md) | sonnet | Ruby with metaprogramming, Rails patterns, gem development |
-| [php-pro](agents/php-pro.md) | sonnet | Modern PHP with frameworks and performance optimization |
+| [javascript-pro](.hanzo/agents/definitions/javascript-pro.md) | sonnet | Modern JavaScript with ES6+, async patterns, Node.js |
+| [typescript-pro](.hanzo/agents/definitions/typescript-pro.md) | sonnet | Advanced TypeScript with type systems and generics |
+| [python-pro](.hanzo/agents/definitions/python-pro.md) | sonnet | Python development with advanced features and optimization |
+| [ruby-pro](.hanzo/agents/definitions/ruby-pro.md) | sonnet | Ruby with metaprogramming, Rails patterns, gem development |
+| [php-pro](.hanzo/agents/definitions/php-pro.md) | sonnet | Modern PHP with frameworks and performance optimization |
 
 #### Enterprise & JVM
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [java-pro](agents/java-pro.md) | sonnet | Modern Java with streams, concurrency, JVM optimization |
-| [scala-pro](agents/scala-pro.md) | sonnet | Enterprise Scala with functional programming and distributed systems |
-| [csharp-pro](agents/csharp-pro.md) | sonnet | C# development with .NET frameworks and patterns |
+| [java-pro](.hanzo/agents/definitions/java-pro.md) | sonnet | Modern Java with streams, concurrency, JVM optimization |
+| [scala-pro](.hanzo/agents/definitions/scala-pro.md) | sonnet | Enterprise Scala with functional programming and distributed systems |
+| [csharp-pro](.hanzo/agents/definitions/csharp-pro.md) | sonnet | C# development with .NET frameworks and patterns |
 
 #### Specialized Platforms
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [elixir-pro](agents/elixir-pro.md) | sonnet | Elixir with OTP patterns and Phoenix frameworks |
-| [django-pro](agents/django-pro.md) | sonnet | Django development with ORM and async views |
-| [fastapi-pro](agents/fastapi-pro.md) | sonnet | FastAPI with async patterns and Pydantic |
-| [unity-developer](agents/unity-developer.md) | sonnet | Unity game development and optimization |
-| [minecraft-bukkit-pro](agents/minecraft-bukkit-pro.md) | sonnet | Minecraft server plugin development |
-| [sql-pro](agents/sql-pro.md) | sonnet | Complex SQL queries and database optimization |
+| [elixir-pro](.hanzo/agents/definitions/elixir-pro.md) | sonnet | Elixir with OTP patterns and Phoenix frameworks |
+| [django-pro](.hanzo/agents/definitions/django-pro.md) | sonnet | Django development with ORM and async views |
+| [fastapi-pro](.hanzo/agents/definitions/fastapi-pro.md) | sonnet | FastAPI with async patterns and Pydantic |
+| [unity-developer](.hanzo/agents/definitions/unity-developer.md) | sonnet | Unity game development and optimization |
+| [minecraft-bukkit-pro](.hanzo/agents/definitions/minecraft-bukkit-pro.md) | sonnet | Minecraft server plugin development |
+| [sql-pro](.hanzo/agents/definitions/sql-pro.md) | sonnet | Complex SQL queries and database optimization |
 
 ### Infrastructure & Operations
 
@@ -467,25 +467,25 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [devops-troubleshooter](agents/devops-troubleshooter.md) | sonnet | Production debugging, log analysis, deployment troubleshooting |
-| [deployment-engineer](agents/deployment-engineer.md) | sonnet | CI/CD pipelines, containerization, cloud deployments |
-| [terraform-specialist](agents/terraform-specialist.md) | opus | Infrastructure as Code with Terraform modules and state management |
-| [dx-optimizer](agents/dx-optimizer.md) | sonnet | Developer experience optimization and tooling improvements |
+| [devops-troubleshooter](.hanzo/agents/definitions/devops-troubleshooter.md) | sonnet | Production debugging, log analysis, deployment troubleshooting |
+| [deployment-engineer](.hanzo/agents/definitions/deployment-engineer.md) | sonnet | CI/CD pipelines, containerization, cloud deployments |
+| [terraform-specialist](.hanzo/agents/definitions/terraform-specialist.md) | opus | Infrastructure as Code with Terraform modules and state management |
+| [dx-optimizer](.hanzo/agents/definitions/dx-optimizer.md) | sonnet | Developer experience optimization and tooling improvements |
 
 #### Database Management
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [database-optimizer](agents/database-optimizer.md) | opus | Query optimization, index design, migration strategies |
-| [database-admin](agents/database-admin.md) | sonnet | Database operations, backup, replication, monitoring |
-| [database-architect](agents/database-architect.md) | opus | Database design from scratch, technology selection, schema modeling |
+| [database-optimizer](.hanzo/agents/definitions/database-optimizer.md) | opus | Query optimization, index design, migration strategies |
+| [database-admin](.hanzo/agents/definitions/database-admin.md) | sonnet | Database operations, backup, replication, monitoring |
+| [database-architect](.hanzo/agents/definitions/database-architect.md) | opus | Database design from scratch, technology selection, schema modeling |
 
 #### Incident Response & Network
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [incident-responder](agents/incident-responder.md) | opus | Production incident management and resolution |
-| [network-engineer](agents/network-engineer.md) | sonnet | Network debugging, load balancing, traffic analysis |
+| [incident-responder](.hanzo/agents/definitions/incident-responder.md) | opus | Production incident management and resolution |
+| [network-engineer](.hanzo/agents/definitions/network-engineer.md) | sonnet | Network debugging, load balancing, traffic analysis |
 
 ### Quality Assurance & Security
 
@@ -493,28 +493,28 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [code-reviewer](agents/code-reviewer.md) | opus | Code review with security focus and production reliability |
-| [security-auditor](agents/security-auditor.md) | opus | Vulnerability assessment and OWASP compliance |
-| [backend-security-coder](agents/backend-security-coder.md) | opus | Secure backend coding practices, API security implementation |
-| [frontend-security-coder](agents/frontend-security-coder.md) | opus | XSS prevention, CSP implementation, client-side security |
-| [mobile-security-coder](agents/mobile-security-coder.md) | opus | Mobile security patterns, WebView security, biometric auth |
+| [code-reviewer](.hanzo/agents/definitions/code-reviewer.md) | opus | Code review with security focus and production reliability |
+| [security-auditor](.hanzo/agents/definitions/security-auditor.md) | opus | Vulnerability assessment and OWASP compliance |
+| [backend-security-coder](.hanzo/agents/definitions/backend-security-coder.md) | opus | Secure backend coding practices, API security implementation |
+| [frontend-security-coder](.hanzo/agents/definitions/frontend-security-coder.md) | opus | XSS prevention, CSP implementation, client-side security |
+| [mobile-security-coder](.hanzo/agents/definitions/mobile-security-coder.md) | opus | Mobile security patterns, WebView security, biometric auth |
 
 #### Testing & Debugging
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [test-automator](agents/test-automator.md) | sonnet | Comprehensive test suite creation (unit, integration, e2e) |
-| [tdd-orchestrator](agents/tdd-orchestrator.md) | sonnet | Test-Driven Development methodology guidance |
-| [debugger](agents/debugger.md) | sonnet | Error resolution and test failure analysis |
-| [error-detective](agents/error-detective.md) | sonnet | Log analysis and error pattern recognition |
+| [test-automator](.hanzo/agents/definitions/test-automator.md) | sonnet | Comprehensive test suite creation (unit, integration, e2e) |
+| [tdd-orchestrator](.hanzo/agents/definitions/tdd-orchestrator.md) | sonnet | Test-Driven Development methodology guidance |
+| [debugger](.hanzo/agents/definitions/debugger.md) | sonnet | Error resolution and test failure analysis |
+| [error-detective](.hanzo/agents/definitions/error-detective.md) | sonnet | Log analysis and error pattern recognition |
 
 #### Performance & Observability
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [performance-engineer](agents/performance-engineer.md) | opus | Application profiling and optimization |
-| [observability-engineer](agents/observability-engineer.md) | opus | Production monitoring, distributed tracing, SLI/SLO management |
-| [search-specialist](agents/search-specialist.md) | sonnet | Advanced web research and information synthesis |
+| [performance-engineer](.hanzo/agents/definitions/performance-engineer.md) | opus | Application profiling and optimization |
+| [observability-engineer](.hanzo/agents/definitions/observability-engineer.md) | opus | Production monitoring, distributed tracing, SLI/SLO management |
+| [search-specialist](.hanzo/agents/definitions/search-specialist.md) | sonnet | Advanced web research and information synthesis |
 
 ### Data & AI
 
@@ -522,27 +522,27 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [data-scientist](agents/data-scientist.md) | opus | Data analysis, SQL queries, BigQuery operations |
-| [data-engineer](agents/data-engineer.md) | sonnet | ETL pipelines, data warehouses, streaming architectures |
+| [data-scientist](.hanzo/agents/definitions/data-scientist.md) | opus | Data analysis, SQL queries, BigQuery operations |
+| [data-engineer](.hanzo/agents/definitions/data-engineer.md) | sonnet | ETL pipelines, data warehouses, streaming architectures |
 
 #### Machine Learning & AI
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [ai-engineer](agents/ai-engineer.md) | opus | LLM applications, RAG systems, prompt pipelines |
-| [ml-engineer](agents/ml-engineer.md) | opus | ML pipelines, model serving, feature engineering |
-| [mlops-engineer](agents/mlops-engineer.md) | opus | ML infrastructure, experiment tracking, model registries |
-| [prompt-engineer](agents/prompt-engineer.md) | opus | LLM prompt optimization and engineering |
+| [ai-engineer](.hanzo/agents/definitions/ai-engineer.md) | opus | LLM applications, RAG systems, prompt pipelines |
+| [ml-engineer](.hanzo/agents/definitions/ml-engineer.md) | opus | ML pipelines, model serving, feature engineering |
+| [mlops-engineer](.hanzo/agents/definitions/mlops-engineer.md) | opus | ML infrastructure, experiment tracking, model registries |
+| [prompt-engineer](.hanzo/agents/definitions/prompt-engineer.md) | opus | LLM prompt optimization and engineering |
 
 ### Documentation & Technical Writing
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [docs-architect](agents/docs-architect.md) | opus | Comprehensive technical documentation generation |
-| [api-documenter](agents/api-documenter.md) | sonnet | OpenAPI/Swagger specifications and developer docs |
-| [reference-builder](agents/reference-builder.md) | sonnet | Technical references and API documentation |
-| [tutorial-engineer](agents/tutorial-engineer.md) | sonnet | Step-by-step tutorials and educational content |
-| [mermaid-expert](agents/mermaid-expert.md) | sonnet | Diagram creation (flowcharts, sequences, ERDs) |
+| [docs-architect](.hanzo/agents/definitions/docs-architect.md) | opus | Comprehensive technical documentation generation |
+| [api-documenter](.hanzo/agents/definitions/api-documenter.md) | sonnet | OpenAPI/Swagger specifications and developer docs |
+| [reference-builder](.hanzo/agents/definitions/reference-builder.md) | sonnet | Technical references and API documentation |
+| [tutorial-engineer](.hanzo/agents/definitions/tutorial-engineer.md) | sonnet | Step-by-step tutorials and educational content |
+| [mermaid-expert](.hanzo/agents/definitions/mermaid-expert.md) | sonnet | Diagram creation (flowcharts, sequences, ERDs) |
 
 ### Business & Operations
 
@@ -550,48 +550,48 @@ Plugins provide pre-configured multi-agent workflows that coordinate complex ope
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [business-analyst](agents/business-analyst.md) | sonnet | Metrics analysis, reporting, KPI tracking |
-| [quant-analyst](agents/quant-analyst.md) | opus | Financial modeling, trading strategies, market analysis |
-| [risk-manager](agents/risk-manager.md) | sonnet | Portfolio risk monitoring and management |
+| [business-analyst](.hanzo/agents/definitions/business-analyst.md) | sonnet | Metrics analysis, reporting, KPI tracking |
+| [quant-analyst](.hanzo/agents/definitions/quant-analyst.md) | opus | Financial modeling, trading strategies, market analysis |
+| [risk-manager](.hanzo/agents/definitions/risk-manager.md) | sonnet | Portfolio risk monitoring and management |
 
 #### Marketing & Sales
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [content-marketer](agents/content-marketer.md) | sonnet | Blog posts, social media, email campaigns |
-| [sales-automator](agents/sales-automator.md) | sonnet | Cold emails, follow-ups, proposal generation |
+| [content-marketer](.hanzo/agents/definitions/content-marketer.md) | sonnet | Blog posts, social media, email campaigns |
+| [sales-automator](.hanzo/agents/definitions/sales-automator.md) | sonnet | Cold emails, follow-ups, proposal generation |
 
 #### Support & Legal
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [customer-support](agents/customer-support.md) | sonnet | Support tickets, FAQ responses, customer communication |
-| [hr-pro](agents/hr-pro.md) | opus | HR operations, policies, employee relations |
-| [legal-advisor](agents/legal-advisor.md) | opus | Privacy policies, terms of service, legal documentation |
+| [customer-support](.hanzo/agents/definitions/customer-support.md) | sonnet | Support tickets, FAQ responses, customer communication |
+| [hr-pro](.hanzo/agents/definitions/hr-pro.md) | opus | HR operations, policies, employee relations |
+| [legal-advisor](.hanzo/agents/definitions/legal-advisor.md) | opus | Privacy policies, terms of service, legal documentation |
 
 ### SEO & Content Optimization
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [seo-content-auditor](agents/seo-content-auditor.md) | sonnet | Content quality analysis, E-E-A-T signals assessment |
-| [seo-meta-optimizer](agents/seo-meta-optimizer.md) | sonnet | Meta title and description optimization |
-| [seo-keyword-strategist](agents/seo-keyword-strategist.md) | sonnet | Keyword analysis and semantic variations |
-| [seo-structure-architect](agents/seo-structure-architect.md) | sonnet | Content structure and schema markup |
-| [seo-snippet-hunter](agents/seo-snippet-hunter.md) | sonnet | Featured snippet formatting |
-| [seo-content-refresher](agents/seo-content-refresher.md) | sonnet | Content freshness analysis |
-| [seo-cannibalization-detector](agents/seo-cannibalization-detector.md) | sonnet | Keyword overlap detection |
-| [seo-authority-builder](agents/seo-authority-builder.md) | sonnet | E-E-A-T signal analysis |
-| [seo-content-writer](agents/seo-content-writer.md) | sonnet | SEO-optimized content creation |
-| [seo-content-planner](agents/seo-content-planner.md) | sonnet | Content planning and topic clusters |
+| [seo-content-auditor](.hanzo/agents/definitions/seo-content-auditor.md) | sonnet | Content quality analysis, E-E-A-T signals assessment |
+| [seo-meta-optimizer](.hanzo/agents/definitions/seo-meta-optimizer.md) | sonnet | Meta title and description optimization |
+| [seo-keyword-strategist](.hanzo/agents/definitions/seo-keyword-strategist.md) | sonnet | Keyword analysis and semantic variations |
+| [seo-structure-architect](.hanzo/agents/definitions/seo-structure-architect.md) | sonnet | Content structure and schema markup |
+| [seo-snippet-hunter](.hanzo/agents/definitions/seo-snippet-hunter.md) | sonnet | Featured snippet formatting |
+| [seo-content-refresher](.hanzo/agents/definitions/seo-content-refresher.md) | sonnet | Content freshness analysis |
+| [seo-cannibalization-detector](.hanzo/agents/definitions/seo-cannibalization-detector.md) | sonnet | Keyword overlap detection |
+| [seo-authority-builder](.hanzo/agents/definitions/seo-authority-builder.md) | sonnet | E-E-A-T signal analysis |
+| [seo-content-writer](.hanzo/agents/definitions/seo-content-writer.md) | sonnet | SEO-optimized content creation |
+| [seo-content-planner](.hanzo/agents/definitions/seo-content-planner.md) | sonnet | Content planning and topic clusters |
 
 ### Specialized Domains
 
 | Agent | Model | Description |
 |-------|-------|-------------|
-| [blockchain-developer](agents/blockchain-developer.md) | sonnet | Web3 apps, smart contracts, DeFi protocols |
-| [payment-integration](agents/payment-integration.md) | sonnet | Payment processor integration (Stripe, PayPal) |
-| [legacy-modernizer](agents/legacy-modernizer.md) | sonnet | Legacy code refactoring and modernization |
-| [context-manager](agents/context-manager.md) | sonnet | Multi-agent context management |
+| [blockchain-developer](.hanzo/agents/definitions/blockchain-developer.md) | sonnet | Web3 apps, smart contracts, DeFi protocols |
+| [payment-integration](.hanzo/agents/definitions/payment-integration.md) | sonnet | Payment processor integration (Stripe, PayPal) |
+| [legacy-modernizer](.hanzo/agents/definitions/legacy-modernizer.md) | sonnet | Legacy code refactoring and modernization |
+| [context-manager](.hanzo/agents/definitions/context-manager.md) | sonnet | Multi-agent context management |
 
 ## Model Configuration
 
@@ -760,9 +760,9 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get started in 5 minutes
 - **[MCP Setup Guide](docs/MCP_SETUP.md)** - Complete Hanzo MCP installation and configuration
 - **[Corporate Roles Guide](docs/CORPORATE_ROLES.md)** - 45+ corporate role mappings across all departments
-- **[Agent Reference](agents/README.md)** - Detailed documentation for all 88 specialized agents
-- **[Workflow Patterns](workflows/)** - 15 multi-agent orchestration workflows
-- **[Development Tools](tools/)** - 42 focused development utilities
+- **[Agent Reference](.hanzo/agents/README.md)** - Detailed documentation for all 88 specialized agents
+- **[Workflow Patterns](.hanzo/agents/workflows/)** - 15 multi-agent orchestration workflows
+- **[Development Tools](.hanzo/agents/tools/)** - 42 focused development utilities
 
 ## Key Features
 
