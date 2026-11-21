@@ -2,6 +2,8 @@
 
 # agents
 
+[![Open in Hanzo](https://hanzo.app/badges/open-in-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/agents&ref=main&action=open) [![Edit with Hanzo](https://hanzo.app/badges/edit-with-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/agents&ref=main&action=edit) [![Deploy with Hanzo](https://hanzo.app/badges/deploy-with-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/agents&ref=main&action=deploy)
+
 Multi-agent orchestration for the Hanzo platform. Role-based, workflow-based, and tool-focused agents that compose over the `mcp` tool surface.
 
 
