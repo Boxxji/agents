@@ -11,7 +11,7 @@ class DummyHTTPError extends Error {
     this.retryAfter = retryAfter;
     this.response = {
       statusCode: this.statusCode,
-      headers: { 'Retry-After': retryAfter }
+      headers: { 'Retry-After': retryAfter },
     };
   }
 }
@@ -25,7 +25,9 @@ describe('StatelessRateLimiter', () => {
     const limiter = new StatelessRateLimiter();
 
     expect((limiter as any)._isRateLimitError(new DummyHTTPError())).toBe(true);
-    expect((limiter as any)._isRateLimitError({ constructor: { name: 'RateLimitError' } })).toBe(true);
+    expect((limiter as any)._isRateLimitError({ constructor: { name: 'RateLimitError' } })).toBe(
+      true
+    );
     expect((limiter as any)._isRateLimitError(new Error('other error'))).toBe(false);
   });
 
@@ -129,7 +131,7 @@ describe('StatelessRateLimiter', () => {
       baseDelay: 0.01,
       jitterFactor: 0.0,
       circuitBreakerThreshold: 1,
-      circuitBreakerTimeout: 5
+      circuitBreakerTimeout: 5,
     });
     vi.spyOn(limiter as any, '_sleep').mockResolvedValue(undefined);
 

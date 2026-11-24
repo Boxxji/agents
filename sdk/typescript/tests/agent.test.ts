@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Agent } from '../src/agent/Agent.js';
-import { AgentRouter } from '../src/router/AgentRouter.js';
 import type { MemoryChangeEvent } from '../src/memory/MemoryInterface.js';
+import { AgentRouter } from '../src/router/AgentRouter.js';
 
 describe('Agent', () => {
   it('registers reasoners and skills directly', () => {
@@ -46,12 +46,12 @@ describe('Agent', () => {
       scope: 'workflow',
       scopeId: 'wf-1',
       timestamp: new Date().toISOString(),
-      agentId: 'watcher'
+      agentId: 'watcher',
     };
     const event2: MemoryChangeEvent = {
       ...event1,
       scope: 'session',
-      scopeId: 's-1'
+      scopeId: 's-1',
     };
 
     (agent as any).dispatchMemoryEvent(event1);

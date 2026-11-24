@@ -1,5 +1,5 @@
-import { BrowserWindow } from 'electron';
 import { z } from 'zod';
+import { getIpcBridge } from '../ipc-bridge';
 import type { Tool } from '../tool-registry';
 
 const inputSchema = z.object({
@@ -25,37 +25,13 @@ export const uiScreenshotTool: Tool<Input, Output> = {
   description: 'Capture a screenshot of the current app window',
   inputSchema,
   handler: async (params) => {
-    // Prefer focused window, fall back to first window if none focused
-    const mainWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-
-    if (!mainWindow) {
-      return { success: false, error: 'No active window found' };
-    }
-
     try {
-      const image = await mainWindow.webContents.capturePage();
-      const size = image.getSize();
-
-      let data: string;
-      let mimeType: string;
-
-      if (params.format === 'jpeg') {
-        data = image.toJPEG(params.quality ?? 80).toString('base64');
-        mimeType = 'image/jpeg';
-      } else {
-        data = image.toPNG().toString('base64');
-        mimeType = 'image/png';
+      const bridge = getIpcBridge();
+      const result = await bridge.invoke<Output>('ui:screenshot', params, 10000);
+      if (result && typeof result === 'object' && 'success' in result) {
+        return result;
       }
-
-      return {
-        success: true,
-        image: {
-          data,
-          mimeType,
-          width: size.width,
-          height: size.height,
-        },
-      };
+      return { success: false, error: 'Renderer did not return screenshot data' };
     } catch (error) {
       return {
         success: false,

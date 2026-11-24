@@ -86,4 +86,4 @@ export function useSidebarState(): UseSidebarStateReturn {
   };
 }
 
-export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH };
+export { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH };

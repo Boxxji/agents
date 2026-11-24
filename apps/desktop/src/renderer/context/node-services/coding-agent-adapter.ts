@@ -108,7 +108,7 @@ export type StreamCallback = (chunk: string) => void;
 export type StructuredStreamCallback = (chunk: StreamingChunk) => void;
 
 // Re-export streaming types for consumers
-export type { StreamingChunk, StreamingBlockType, StreamingContentBlock };
+export type { StreamingBlockType, StreamingChunk, StreamingContentBlock };
 
 /**
  * Session identifier types

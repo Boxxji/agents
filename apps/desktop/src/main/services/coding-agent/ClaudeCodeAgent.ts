@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentEvent,
   PermissionMode,
@@ -15,7 +16,6 @@ import {
   type EventRegistry,
   type SDKHookBridge,
 } from '@hanzo/agents-shared';
-import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { ForkAdapterFactory } from '../fork-adapters/factory/ForkAdapterFactory';
 import type { CodingAgent } from './CodingAgent';
 import type {

@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { AgentConsensus } from './consensus.js';
 import type { AgentCallFn, AgentConfig, AgentVoteFn } from './consensus.js';
-import {
-  computeConsensusScore,
-  hasReachedFinality,
-  synthesizeTopK,
-} from './quasar-voting.js';
+import { AgentConsensus } from './consensus.js';
 import type { AgentProposal, QuasarVote } from './quasar-voting.js';
+import { computeConsensusScore, hasReachedFinality, synthesizeTopK } from './quasar-voting.js';
 
 // --- quasar-voting unit tests ---
 
@@ -17,13 +13,21 @@ describe('computeConsensusScore', () => {
       {
         voterId: 'a1',
         preference: ['p1', 'p2', 'p3'],
-        scores: new Map([['p1', 0.9], ['p2', 0.6], ['p3', 0.3]]),
+        scores: new Map([
+          ['p1', 0.9],
+          ['p2', 0.6],
+          ['p3', 0.3],
+        ]),
         confidence: 0.8,
       },
       {
         voterId: 'a2',
         preference: ['p2', 'p1', 'p3'],
-        scores: new Map([['p1', 0.7], ['p2', 0.8], ['p3', 0.2]]),
+        scores: new Map([
+          ['p1', 0.7],
+          ['p2', 0.8],
+          ['p3', 0.2],
+        ]),
         confidence: 0.9,
       },
     ];
@@ -55,13 +59,19 @@ describe('computeConsensusScore', () => {
       {
         voterId: 'a1',
         preference: ['p1', 'p2'],
-        scores: new Map([['p1', 0.9], ['p2', 0.1]]),
+        scores: new Map([
+          ['p1', 0.9],
+          ['p2', 0.1],
+        ]),
         confidence: 0.2,
       },
       {
         voterId: 'a2',
         preference: ['p2', 'p1'],
-        scores: new Map([['p1', 0.3], ['p2', 0.95]]),
+        scores: new Map([
+          ['p1', 0.3],
+          ['p2', 0.95],
+        ]),
         confidence: 0.95,
       },
     ];
@@ -74,18 +84,27 @@ describe('computeConsensusScore', () => {
 
 describe('hasReachedFinality', () => {
   it('returns true when top score exceeds threshold with margin', () => {
-    const scores = new Map([['p1', 0.85], ['p2', 0.3]]);
+    const scores = new Map([
+      ['p1', 0.85],
+      ['p2', 0.3],
+    ]);
     expect(hasReachedFinality(scores, 0.67)).toBe(true);
   });
 
   it('returns false when top score is below threshold', () => {
-    const scores = new Map([['p1', 0.5], ['p2', 0.4]]);
+    const scores = new Map([
+      ['p1', 0.5],
+      ['p2', 0.4],
+    ]);
     expect(hasReachedFinality(scores, 0.67)).toBe(false);
   });
 
   it('returns false when margin between #1 and #2 is too small', () => {
     // Both above threshold but gap < threshold * 0.1 = 0.067
-    const scores = new Map([['p1', 0.72], ['p2', 0.7]]);
+    const scores = new Map([
+      ['p1', 0.72],
+      ['p2', 0.7],
+    ]);
     expect(hasReachedFinality(scores, 0.67)).toBe(false);
   });
 
@@ -110,10 +129,25 @@ describe('synthesizeTopK', () => {
 
   it('merges unique sentences from top proposals', () => {
     const proposals: AgentProposal[] = [
-      { id: 'p1', agentId: 'a1', content: 'The sky is blue. Water is wet.', confidence: 0.9, timestamp: 1 },
-      { id: 'p2', agentId: 'a2', content: 'The sky is blue. Fire is hot.', confidence: 0.8, timestamp: 2 },
+      {
+        id: 'p1',
+        agentId: 'a1',
+        content: 'The sky is blue. Water is wet.',
+        confidence: 0.9,
+        timestamp: 1,
+      },
+      {
+        id: 'p2',
+        agentId: 'a2',
+        content: 'The sky is blue. Fire is hot.',
+        confidence: 0.8,
+        timestamp: 2,
+      },
     ];
-    const scores = new Map([['p1', 0.9], ['p2', 0.7]]);
+    const scores = new Map([
+      ['p1', 0.9],
+      ['p2', 0.7],
+    ]);
     const result = synthesizeTopK(proposals, scores, 2);
     // p1 ranked first, so its sentences come first
     expect(result).toContain('The sky is blue.');
@@ -130,7 +164,11 @@ describe('synthesizeTopK', () => {
       { id: 'p2', agentId: 'a2', content: 'Second.', confidence: 0.8, timestamp: 2 },
       { id: 'p3', agentId: 'a3', content: 'Third.', confidence: 0.7, timestamp: 3 },
     ];
-    const scores = new Map([['p1', 0.9], ['p2', 0.5], ['p3', 0.1]]);
+    const scores = new Map([
+      ['p1', 0.9],
+      ['p2', 0.5],
+      ['p3', 0.1],
+    ]);
     const result = synthesizeTopK(proposals, scores, 2);
     expect(result).toContain('First.');
     expect(result).toContain('Second.');
@@ -152,19 +190,28 @@ describe('AgentConsensus', () => {
     engine.submitQuasarVote({
       voterId: 'agent-a',
       preference: [id2, id3],
-      scores: new Map([[id2, 0.5], [id3, 0.7]]),
+      scores: new Map([
+        [id2, 0.5],
+        [id3, 0.7],
+      ]),
       confidence: 0.9,
     });
     engine.submitQuasarVote({
       voterId: 'agent-b',
       preference: [id1, id3],
-      scores: new Map([[id1, 0.9], [id3, 0.6]]),
+      scores: new Map([
+        [id1, 0.9],
+        [id3, 0.6],
+      ]),
       confidence: 0.7,
     });
     engine.submitQuasarVote({
       voterId: 'agent-c',
       preference: [id1, id2],
-      scores: new Map([[id1, 0.85], [id2, 0.4]]),
+      scores: new Map([
+        [id1, 0.85],
+        [id2, 0.4],
+      ]),
       confidence: 0.8,
     });
 

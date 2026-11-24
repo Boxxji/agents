@@ -1,8 +1,8 @@
-import type { MemoryScope } from '../types/agent.js';
-import type { MemoryRequestMetadata, VectorSearchOptions } from './MemoryClient.js';
-import type { MemoryBackend } from './MemoryBackend.js';
-import type { MemoryEventClient } from './MemoryEventClient.js';
 import type { AIClient, AIEmbeddingOptions } from '../ai/AIClient.js';
+import type { MemoryScope } from '../types/agent.js';
+import type { MemoryBackend } from './MemoryBackend.js';
+import type { MemoryRequestMetadata, VectorSearchOptions } from './MemoryClient.js';
+import type { MemoryEventClient } from './MemoryEventClient.js';
 
 export interface MemoryChangeEvent {
   key: string;
@@ -39,11 +39,16 @@ export class MemoryInterface {
     this.metadata = params.metadata;
   }
 
-  async set(key: string, data: any, scope: MemoryScope = this.defaultScope, scopeId = this.defaultScopeId) {
+  async set(
+    key: string,
+    data: any,
+    scope: MemoryScope = this.defaultScope,
+    scopeId = this.defaultScopeId
+  ) {
     await this.client.set(key, data, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -56,7 +61,7 @@ export class MemoryInterface {
     return this.client.get<T>(key, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -65,7 +70,7 @@ export class MemoryInterface {
       const value = await this.client.get<T>(key, {
         scope: candidate.scope,
         scopeId: candidate.scopeId,
-        metadata: this.metadata
+        metadata: this.metadata,
       });
       if (value !== undefined) return value;
     }
@@ -82,22 +87,26 @@ export class MemoryInterface {
     await this.client.setVector(key, embedding, metadata, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
-  async deleteVector(key: string, scope: MemoryScope = this.defaultScope, scopeId = this.defaultScopeId) {
+  async deleteVector(
+    key: string,
+    scope: MemoryScope = this.defaultScope,
+    scopeId = this.defaultScopeId
+  ) {
     await this.client.deleteVector(key, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
   searchVector(queryEmbedding: number[], options: Omit<VectorSearchOptions, 'metadata'> = {}) {
     return this.client.searchVector(queryEmbedding, {
       ...options,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -105,7 +114,7 @@ export class MemoryInterface {
     return this.client.delete(key, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -113,7 +122,7 @@ export class MemoryInterface {
     return this.client.exists(key, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -121,7 +130,7 @@ export class MemoryInterface {
     return this.client.listKeys(scope, {
       scope,
       scopeId,
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -152,7 +161,11 @@ export class MemoryInterface {
     return embedding;
   }
 
-  async deleteVectors(keys: string[], scope: MemoryScope = this.defaultScope, scopeId = this.defaultScopeId) {
+  async deleteVectors(
+    keys: string[],
+    scope: MemoryScope = this.defaultScope,
+    scopeId = this.defaultScopeId
+  ) {
     for (const key of keys) {
       await this.deleteVector(key, scope, scopeId);
     }
@@ -185,7 +198,7 @@ export class MemoryInterface {
       aiClient: this.aiClient,
       defaultScope: scope,
       defaultScopeId: scopeId ?? this.resolveScopeId(scope, this.metadata),
-      metadata: this.metadata
+      metadata: this.metadata,
     });
   }
 
@@ -200,7 +213,10 @@ export class MemoryInterface {
       }
     };
 
-    pushUnique(this.defaultScope, this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, metadata));
+    pushUnique(
+      this.defaultScope,
+      this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, metadata)
+    );
 
     const defaultSequence: MemoryScope[] = ['workflow', 'session', 'actor', 'global'];
     defaultSequence.forEach((scope) => {

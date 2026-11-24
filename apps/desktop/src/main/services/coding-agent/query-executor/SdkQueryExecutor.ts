@@ -5,7 +5,6 @@
  * Maps SDK types to our internal types, isolating SDK-specific code.
  */
 
-import type { StreamingChunk } from '@hanzo/agents-shared';
 import type {
   CanUseTool,
   Options,
@@ -15,6 +14,7 @@ import type {
   SDKResultMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { StreamingChunk } from '@hanzo/agents-shared';
 import type {
   QueryAssistantMessage,
   QueryExecutor,
@@ -185,7 +185,7 @@ export class SdkQueryExecutor implements QueryExecutor {
 
     if (Array.isArray(content)) {
       return content
-        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+        .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
         .map((block) => block.text)
         .join('\n');
     }

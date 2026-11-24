@@ -70,7 +70,7 @@ export class StatelessRateLimiter {
       err?.statusCode,
       response?.status,
       response?.statusCode,
-      response?.status_code
+      response?.status_code,
     ];
     if (statusCandidates.some((code: any) => code === 429 || code === 503)) {
       return true;
@@ -90,7 +90,7 @@ export class StatelessRateLimiter {
       'tpm exceeded',
       'usage limit',
       'throttled',
-      'throttling'
+      'throttling',
     ];
 
     return rateLimitKeywords.some((keyword) => message.includes(keyword));
@@ -104,7 +104,9 @@ export class StatelessRateLimiter {
     if (headers && typeof headers === 'object') {
       const retryAfterKey = Object.keys(headers).find((k) => k.toLowerCase() === 'retry-after');
       if (retryAfterKey) {
-        const value = Array.isArray(headers[retryAfterKey]) ? headers[retryAfterKey][0] : headers[retryAfterKey];
+        const value = Array.isArray(headers[retryAfterKey])
+          ? headers[retryAfterKey][0]
+          : headers[retryAfterKey];
         const parsed = parseFloat(value);
         if (!Number.isNaN(parsed)) {
           return parsed;
@@ -167,7 +169,10 @@ export class StatelessRateLimiter {
     }
 
     this._consecutiveFailures += 1;
-    if (this._consecutiveFailures >= this.circuitBreakerThreshold && this._circuitOpenTime === undefined) {
+    if (
+      this._consecutiveFailures >= this.circuitBreakerThreshold &&
+      this._circuitOpenTime === undefined
+    ) {
       this._circuitOpenTime = this._now();
     }
   }

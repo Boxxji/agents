@@ -27,7 +27,7 @@ export class MCPClient {
       headers: config.headers,
       timeout: 30000,
       httpAgent,
-      httpsAgent
+      httpsAgent,
     });
     this.devMode = Boolean(devMode);
   }
@@ -40,7 +40,10 @@ export class MCPClient {
     } catch (err) {
       this.lastHealthy = false;
       if (this.devMode) {
-        console.warn(`MCP health check failed for ${this.alias}:`, err instanceof Error ? err.message : err);
+        console.warn(
+          `MCP health check failed for ${this.alias}:`,
+          err instanceof Error ? err.message : err
+        );
       }
       return false;
     }
@@ -58,13 +61,16 @@ export class MCPClient {
         jsonrpc: '2.0',
         id: Date.now(),
         method: 'tools/list',
-        params: {}
+        params: {},
       });
       const tools = res.data?.result?.tools ?? [];
       return this.normalizeTools(tools);
     } catch (err) {
       if (this.devMode) {
-        console.warn(`MCP listTools failed for ${this.alias}:`, err instanceof Error ? err.message : err);
+        console.warn(
+          `MCP listTools failed for ${this.alias}:`,
+          err instanceof Error ? err.message : err
+        );
       }
       return [];
     }
@@ -79,7 +85,7 @@ export class MCPClient {
       if (this.transport === 'bridge') {
         const res = await this.http.post('/mcp/tools/call', {
           tool_name: toolName,
-          arguments: arguments_
+          arguments: arguments_,
         });
         return res.data?.result ?? res.data;
       }
@@ -88,7 +94,7 @@ export class MCPClient {
         jsonrpc: '2.0',
         id: Date.now(),
         method: 'tools/call',
-        params: { name: toolName, arguments: arguments_ }
+        params: { name: toolName, arguments: arguments_ },
       });
 
       if (res.data?.error) {
@@ -102,7 +108,10 @@ export class MCPClient {
       return res.data;
     } catch (err) {
       if (this.devMode) {
-        console.warn(`MCP callTool failed for ${this.alias}.${toolName}:`, err instanceof Error ? err.message : err);
+        console.warn(
+          `MCP callTool failed for ${this.alias}.${toolName}:`,
+          err instanceof Error ? err.message : err
+        );
       }
       throw err;
     }
@@ -117,7 +126,7 @@ export class MCPClient {
       name: tool?.name ?? 'unknown',
       description: tool?.description,
       inputSchema: tool?.inputSchema ?? tool?.input_schema,
-      input_schema: tool?.input_schema
+      input_schema: tool?.input_schema,
     }));
   }
 }

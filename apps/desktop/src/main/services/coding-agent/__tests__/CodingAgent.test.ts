@@ -308,70 +308,64 @@ describe('CodingAgent Interface', () => {
       }
     });
 
-    it(
-      'generate() accepts GenerateRequest and returns Result<GenerateResponse, AgentError>',
-      { timeout: 10000 },
-      async () => {
-        const request: GenerateRequest = {
-          prompt: 'Hello, world!',
-          workingDirectory: process.cwd(),
-          agentId: 'test-agent-id',
-          sessionId: 'test-session-id',
-        };
+    it('generate() accepts GenerateRequest and returns Result<GenerateResponse, AgentError>', {
+      timeout: 10000,
+    }, async () => {
+      const request: GenerateRequest = {
+        prompt: 'Hello, world!',
+        workingDirectory: process.cwd(),
+        agentId: 'test-agent-id',
+        sessionId: 'test-session-id',
+      };
 
-        // This will fail if SDK not available, which is expected in tests
-        const result = await agent.generate(request);
+      // This will fail if SDK not available, which is expected in tests
+      const result = await agent.generate(request);
 
-        expect(result).toHaveProperty('success');
-        if (result.success) {
-          expect(result.data).toHaveProperty('content');
-          expect(result.data).toHaveProperty('sessionId');
-          expect(result.data).toHaveProperty('messageId');
-          expect(result.data).toHaveProperty('timestamp');
-        } else {
-          expect(result.error).toHaveProperty('code');
-          expect(result.error).toHaveProperty('message');
-        }
+      expect(result).toHaveProperty('success');
+      if (result.success) {
+        expect(result.data).toHaveProperty('content');
+        expect(result.data).toHaveProperty('sessionId');
+        expect(result.data).toHaveProperty('messageId');
+        expect(result.data).toHaveProperty('timestamp');
+      } else {
+        expect(result.error).toHaveProperty('code');
+        expect(result.error).toHaveProperty('message');
       }
-    );
+    });
 
-    it(
-      'generateStreaming() accepts GenerateRequest and StreamCallback',
-      { timeout: 10000 },
-      async () => {
-        const request: GenerateRequest = {
-          prompt: 'Hello, world!',
-          workingDirectory: process.cwd(),
-          agentId: 'test-agent-id',
-          sessionId: 'test-session-id',
-        };
-        const chunks: string[] = [];
-        const onChunk: StreamCallback = (chunk) => chunks.push(chunk);
+    it('generateStreaming() accepts GenerateRequest and StreamCallback', {
+      timeout: 10000,
+    }, async () => {
+      const request: GenerateRequest = {
+        prompt: 'Hello, world!',
+        workingDirectory: process.cwd(),
+        agentId: 'test-agent-id',
+        sessionId: 'test-session-id',
+      };
+      const chunks: string[] = [];
+      const onChunk: StreamCallback = (chunk) => chunks.push(chunk);
 
-        const result = await agent.generateStreaming(request, onChunk);
+      const result = await agent.generateStreaming(request, onChunk);
 
-        expect(result).toHaveProperty('success');
-      }
-    );
+      expect(result).toHaveProperty('success');
+    });
 
-    it(
-      'generateStreamingStructured() accepts GenerateRequest and StructuredStreamCallback',
-      { timeout: 10000 },
-      async () => {
-        const request: GenerateRequest = {
-          prompt: 'Hello, world!',
-          workingDirectory: process.cwd(),
-          agentId: 'test-agent-id',
-          sessionId: 'test-session-id',
-        };
-        const chunks: unknown[] = [];
-        const onChunk: StructuredStreamCallback = (chunk) => chunks.push(chunk);
+    it('generateStreamingStructured() accepts GenerateRequest and StructuredStreamCallback', {
+      timeout: 10000,
+    }, async () => {
+      const request: GenerateRequest = {
+        prompt: 'Hello, world!',
+        workingDirectory: process.cwd(),
+        agentId: 'test-agent-id',
+        sessionId: 'test-session-id',
+      };
+      const chunks: unknown[] = [];
+      const onChunk: StructuredStreamCallback = (chunk) => chunks.push(chunk);
 
-        const result = await agent.generateStreamingStructured(request, onChunk);
+      const result = await agent.generateStreamingStructured(request, onChunk);
 
-        expect(result).toHaveProperty('success');
-      }
-    );
+      expect(result).toHaveProperty('success');
+    });
   });
 
   /**
@@ -397,41 +391,37 @@ describe('CodingAgent Interface', () => {
       }
     });
 
-    it(
-      'continueSession() accepts SessionIdentifier and returns Result<GenerateResponse, AgentError>',
-      { timeout: 10000 },
-      async () => {
-        const identifier: SessionIdentifier = { type: 'id', value: 'test-session-id' };
-        const prompt = 'Continue from here';
-        const options: ContinueOptions = {
-          workingDirectory: process.cwd(),
-          agentId: 'test-agent-id',
-        };
+    it('continueSession() accepts SessionIdentifier and returns Result<GenerateResponse, AgentError>', {
+      timeout: 10000,
+    }, async () => {
+      const identifier: SessionIdentifier = { type: 'id', value: 'test-session-id' };
+      const prompt = 'Continue from here';
+      const options: ContinueOptions = {
+        workingDirectory: process.cwd(),
+        agentId: 'test-agent-id',
+      };
 
-        const result = await agent.continueSession(identifier, prompt, options);
+      const result = await agent.continueSession(identifier, prompt, options);
 
-        expect(result).toHaveProperty('success');
-      }
-    );
+      expect(result).toHaveProperty('success');
+    });
 
-    it(
-      'continueSessionStreaming() accepts SessionIdentifier with StreamCallback',
-      { timeout: 10000 },
-      async () => {
-        const identifier: SessionIdentifier = { type: 'id', value: 'test-session-id' };
-        const prompt = 'Continue from here';
-        const chunks: string[] = [];
-        const onChunk: StreamCallback = (chunk) => chunks.push(chunk);
-        const options: ContinueOptions = {
-          workingDirectory: process.cwd(),
-          agentId: 'test-agent-id',
-        };
+    it('continueSessionStreaming() accepts SessionIdentifier with StreamCallback', {
+      timeout: 10000,
+    }, async () => {
+      const identifier: SessionIdentifier = { type: 'id', value: 'test-session-id' };
+      const prompt = 'Continue from here';
+      const chunks: string[] = [];
+      const onChunk: StreamCallback = (chunk) => chunks.push(chunk);
+      const options: ContinueOptions = {
+        workingDirectory: process.cwd(),
+        agentId: 'test-agent-id',
+      };
 
-        const result = await agent.continueSessionStreaming(identifier, prompt, onChunk, options);
+      const result = await agent.continueSessionStreaming(identifier, prompt, onChunk, options);
 
-        expect(result).toHaveProperty('success');
-      }
-    );
+      expect(result).toHaveProperty('success');
+    });
 
     it('supports multiple SessionIdentifier types', async () => {
       const byId: SessionIdentifier = { type: 'id', value: 'abc123' };
@@ -509,27 +499,25 @@ describe('CodingAgent Interface', () => {
       }
     });
 
-    it(
-      'listSessionSummaries() returns Result<SessionSummary[], AgentError>',
-      { timeout: 15000 },
-      async () => {
-        const filter: SessionFilterOptions = { lookbackDays: 7 };
+    it('listSessionSummaries() returns Result<SessionSummary[], AgentError>', {
+      timeout: 15000,
+    }, async () => {
+      const filter: SessionFilterOptions = { lookbackDays: 7 };
 
-        const result = await agent.listSessionSummaries(filter);
+      const result = await agent.listSessionSummaries(filter);
 
-        expect(result).toHaveProperty('success');
-        if (result.success) {
-          expect(Array.isArray(result.data)).toBe(true);
-          // Each summary should have required fields
-          for (const summary of result.data) {
-            expect(summary).toHaveProperty('id');
-            expect(summary).toHaveProperty('agentType');
-            expect(summary).toHaveProperty('messageCount');
-            expect(summary).toHaveProperty('timestamp');
-          }
+      expect(result).toHaveProperty('success');
+      if (result.success) {
+        expect(Array.isArray(result.data)).toBe(true);
+        // Each summary should have required fields
+        for (const summary of result.data) {
+          expect(summary).toHaveProperty('id');
+          expect(summary).toHaveProperty('agentType');
+          expect(summary).toHaveProperty('messageCount');
+          expect(summary).toHaveProperty('timestamp');
         }
       }
-    );
+    });
 
     it('getSession() returns Result<CodingAgentSessionContent | null, AgentError>', async () => {
       const sessionId = 'test-session-id';

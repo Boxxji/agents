@@ -3,8 +3,8 @@
 // The caller provides an MCP client; this module handles
 // formatting prompts and parsing responses.
 
-import { AgentConsensus } from './consensus.js';
 import type { AgentCallFn, AgentConfig, AgentVoteFn } from './consensus.js';
+import { AgentConsensus } from './consensus.js';
 import type { AgentProposal, ConsensusResult } from './quasar-voting.js';
 
 export interface McpClient {

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import v8 from 'node:v8';
 import vm from 'node:vm';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Agent } from '../src/agent/Agent.js';
 
 /**
@@ -114,7 +114,9 @@ describe('Memory Performance Tests', () => {
 
       console.log(`\nReasoner/Skill Registration: ${formatMemory(metrics.heapUsedMB)}`);
       console.log(`  Total Registered: ${metrics.iterations * 2}`);
-      console.log(`  Per Registration: ${formatMemory(metrics.heapUsedMB / (metrics.iterations * 2))}`);
+      console.log(
+        `  Per Registration: ${formatMemory(metrics.heapUsedMB / (metrics.iterations * 2))}`
+      );
 
       // 2000 registrations should use less than 10MB
       expect(metrics.heapUsedMB).toBeLessThan(5);
@@ -227,7 +229,9 @@ describe('Memory Performance Tests', () => {
       console.log('\n' + '='.repeat(70));
       console.log('TYPESCRIPT SDK MEMORY PERFORMANCE REPORT');
       console.log('='.repeat(70));
-      console.log(`${'Test Name'.padEnd(30)} ${'Heap Used'.padStart(12)} ${'Per Iter'.padStart(12)}`);
+      console.log(
+        `${'Test Name'.padEnd(30)} ${'Heap Used'.padStart(12)} ${'Per Iter'.padStart(12)}`
+      );
       console.log('-'.repeat(70));
 
       for (const m of allMetrics) {

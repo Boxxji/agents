@@ -31,8 +31,10 @@ build/
 # Next.js
 .next/
 
-# Electron-builder output
+# Desktop build output
 apps/desktop/release/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
 
 # IDE
 .vscode/

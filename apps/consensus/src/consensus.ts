@@ -2,12 +2,8 @@
 // Agents propose responses, vote on each other's proposals,
 // and the system converges to a synthesized result.
 
-import {
-  computeConsensusScore,
-  hasReachedFinality,
-  synthesizeTopK,
-} from './quasar-voting.js';
 import type { AgentProposal, ConsensusResult, QuasarVote } from './quasar-voting.js';
+import { computeConsensusScore, hasReachedFinality, synthesizeTopK } from './quasar-voting.js';
 
 export interface AgentConfig {
   id: string;
@@ -117,8 +113,7 @@ export class AgentConsensus {
     const topScore = sortedScores[0] ?? 0;
 
     // Agreement = how close the top score is to 1.0, penalized by spread
-    const spread =
-      sortedScores.length > 1 ? topScore - sortedScores[sortedScores.length - 1] : 0;
+    const spread = sortedScores.length > 1 ? topScore - sortedScores[sortedScores.length - 1] : 0;
     const agreement = Math.min(1, topScore * (1 + spread));
 
     const synthesis = synthesizeTopK(proposals, scores, Math.min(3, proposals.length));

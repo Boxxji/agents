@@ -20,18 +20,18 @@ async function main() {
       callerDid: 'did:example:caller',
       targetDid: 'did:example:target',
       agentNodeDid: 'did:example:agent',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     },
     inputData: { text: 'hello world' },
     outputData: { ok: true },
     status: 'succeeded',
-    durationMs: 123
+    durationMs: 123,
   });
 
   console.log('Credential created:', {
     vcId: credential.vcId,
     status: credential.status,
-    createdAt: credential.createdAt
+    createdAt: credential.createdAt,
   });
 
   const exportResult = await client.exportAuditTrail({ workflowId });
@@ -39,7 +39,7 @@ async function main() {
     agentDids: exportResult.agentDids.length,
     executionVcs: exportResult.executionVcs.length,
     workflowVcs: exportResult.workflowVcs.length,
-    totalCount: exportResult.totalCount
+    totalCount: exportResult.totalCount,
   });
 }
 

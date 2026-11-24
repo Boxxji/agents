@@ -61,10 +61,7 @@ export function computeConsensusScore(
 // Check if the top proposal has reached finality:
 // 1. Top score exceeds the threshold
 // 2. Gap between #1 and #2 exceeds a minimum margin (10% of threshold)
-export function hasReachedFinality(
-  scores: Map<string, number>,
-  threshold: number
-): boolean {
+export function hasReachedFinality(scores: Map<string, number>, threshold: number): boolean {
   const sorted = [...scores.values()].sort((a, b) => b - a);
   if (sorted.length === 0) return false;
   const top = sorted[0];

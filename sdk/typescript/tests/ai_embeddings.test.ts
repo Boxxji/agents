@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AIClient } from '../src/ai/AIClient.js';
-import { MemoryInterface } from '../src/memory/MemoryInterface.js';
 import type { MemoryClient } from '../src/memory/MemoryClient.js';
+import { MemoryInterface } from '../src/memory/MemoryInterface.js';
 
 const { embedMock, embedManyMock, generateTextMock, streamTextMock } = vi.hoisted(() => ({
   embedMock: vi.fn(),
   embedManyMock: vi.fn(),
   generateTextMock: vi.fn(),
-  streamTextMock: vi.fn()
+  streamTextMock: vi.fn(),
 }));
 
 const { openAIEmbeddingMock, openAIProvider, createOpenAIMock } = vi.hoisted(() => {
@@ -17,7 +17,7 @@ const { openAIEmbeddingMock, openAIProvider, createOpenAIMock } = vi.hoisted(() 
   return {
     openAIEmbeddingMock: embedding,
     openAIProvider: provider,
-    createOpenAIMock: vi.fn(() => provider)
+    createOpenAIMock: vi.fn(() => provider),
   };
 });
 
@@ -25,15 +25,15 @@ vi.mock('ai', () => ({
   generateText: generateTextMock,
   streamText: streamTextMock,
   embed: embedMock,
-  embedMany: embedManyMock
+  embedMany: embedManyMock,
 }));
 
 vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: createOpenAIMock
+  createOpenAI: createOpenAIMock,
 }));
 
 vi.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: vi.fn(() => vi.fn())
+  createAnthropic: vi.fn(() => vi.fn()),
 }));
 
 describe('AIClient embeddings', () => {
@@ -51,7 +51,7 @@ describe('AIClient embeddings', () => {
     expect(embedMock).toHaveBeenCalledWith(
       expect.objectContaining({
         value: 'hello',
-        model: expect.any(Object)
+        model: expect.any(Object),
       })
     );
     expect(result).toEqual([0.1, 0.2]);
@@ -65,7 +65,7 @@ describe('AIClient embeddings', () => {
     expect(embedManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         values: ['a', 'b'],
-        model: expect.any(Object)
+        model: expect.any(Object),
       })
     );
     expect(result).toEqual([[0.1], [0.2]]);
@@ -88,7 +88,7 @@ describe('MemoryInterface embedding helpers', () => {
       aiClient,
       defaultScope: 'workflow',
       defaultScopeId: 'wf-1',
-      metadata: { workflowId: 'wf-1' }
+      metadata: { workflowId: 'wf-1' },
     });
 
     const embedding = await memory.embedAndSet('key-1', 'text to embed', { tag: 'demo' });
@@ -101,7 +101,7 @@ describe('MemoryInterface embedding helpers', () => {
       expect.objectContaining({
         scope: 'workflow',
         scopeId: 'wf-1',
-        metadata: { workflowId: 'wf-1' }
+        metadata: { workflowId: 'wf-1' },
       })
     );
     expect(embedding).toEqual([0.9]);
@@ -112,7 +112,7 @@ describe('MemoryInterface embedding helpers', () => {
     const memory = new MemoryInterface({
       client: { deleteVector } as unknown as MemoryClient,
       defaultScope: 'session',
-      defaultScopeId: 's-1'
+      defaultScopeId: 's-1',
     });
 
     await memory.deleteVectors(['a', 'b'], 'session', 's-1');
@@ -122,7 +122,7 @@ describe('MemoryInterface embedding helpers', () => {
       'a',
       expect.objectContaining({
         scope: 'session',
-        scopeId: 's-1'
+        scopeId: 's-1',
       })
     );
     expect(deleteVector).toHaveBeenNthCalledWith(
@@ -130,7 +130,7 @@ describe('MemoryInterface embedding helpers', () => {
       'b',
       expect.objectContaining({
         scope: 'session',
-        scopeId: 's-1'
+        scopeId: 's-1',
       })
     );
   });

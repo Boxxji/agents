@@ -1,9 +1,9 @@
 import type http from 'node:http';
+import type { ExecutionMetadata } from '../context/ExecutionContext.js';
+import type { MemoryBackend } from '../memory/MemoryBackend.js';
+import type { MemoryChangeEvent, MemoryWatchHandler } from '../memory/MemoryInterface.js';
 import type { ReasonerDefinition } from './reasoner.js';
 import type { SkillDefinition } from './skill.js';
-import type { MemoryChangeEvent, MemoryWatchHandler } from '../memory/MemoryInterface.js';
-import type { MemoryBackend } from '../memory/MemoryBackend.js';
-import type { ExecutionMetadata } from '../context/ExecutionContext.js';
 
 export type DeploymentType = 'long_running' | 'serverless';
 
@@ -171,7 +171,12 @@ export interface DiscoveryOptions {
 export interface AgentState {
   reasoners: Map<string, ReasonerDefinition>;
   skills: Map<string, SkillDefinition>;
-  memoryWatchers: Array<{ pattern: string; handler: MemoryWatchHandler; scope?: string; scopeId?: string }>;
+  memoryWatchers: Array<{
+    pattern: string;
+    handler: MemoryWatchHandler;
+    scope?: string;
+    scopeId?: string;
+  }>;
 }
 
 // Health status returned by the agent `/status` endpoint.

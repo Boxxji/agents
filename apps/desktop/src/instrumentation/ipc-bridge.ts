@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { ipcBus } from '../main/ipc-bus';
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -7,8 +7,7 @@ type PendingRequest = {
 };
 
 /**
- * Bridge for MCP server to communicate with renderer process.
- * Provides async request/response pattern over Electron IPC.
+ * Bridge for MCP server to communicate with renderer process over the sidecar RPC bus.
  */
 export class IpcBridge {
   private pendingRequests: Map<string, PendingRequest> = new Map();
@@ -22,7 +21,7 @@ export class IpcBridge {
   }
 
   private setupResponseHandler(): void {
-    ipcMain.on(
+    ipcBus.on(
       this.responseChannel,
       (
         _event,
@@ -46,17 +45,9 @@ export class IpcBridge {
     );
   }
 
-  /**
-   * Send a request to the renderer and wait for response.
-   */
   async invoke<T = unknown>(channel: string, payload?: unknown, timeout?: number): Promise<T> {
     if (this.disposed) {
       throw new Error('IpcBridge has been disposed');
-    }
-
-    const window = this.getMainWindow();
-    if (!window) {
-      throw new Error('No active window for IPC communication');
     }
 
     const requestId = `mcp-${++this.requestCounter}-${Date.now()}`;
@@ -74,7 +65,7 @@ export class IpcBridge {
         timeout: timeoutHandle,
       });
 
-      window.webContents.send(this.requestChannel, {
+      ipcBus.broadcast(this.requestChannel, {
         requestId,
         channel,
         payload,
@@ -82,26 +73,11 @@ export class IpcBridge {
     });
   }
 
-  /**
-   * Send a one-way message to renderer (no response expected).
-   */
   send(channel: string, payload?: unknown): void {
     if (this.disposed) {
       return;
     }
-
-    const window = this.getMainWindow();
-    if (!window) {
-      console.warn('[IpcBridge] No active window for send:', channel);
-      return;
-    }
-
-    window.webContents.send(channel, payload);
-  }
-
-  private getMainWindow(): BrowserWindow | null {
-    const windows = BrowserWindow.getAllWindows();
-    return windows[0] ?? null;
+    ipcBus.broadcast(channel, payload);
   }
 
   dispose(): void {
@@ -111,11 +87,10 @@ export class IpcBridge {
       pending.reject(new Error('IpcBridge disposed'));
       this.pendingRequests.delete(requestId);
     }
-    ipcMain.removeAllListeners(this.responseChannel);
+    ipcBus.removeAllListeners(this.responseChannel);
   }
 }
 
-// Global singleton
 let ipcBridgeInstance: IpcBridge | null = null;
 
 export function getIpcBridge(): IpcBridge {

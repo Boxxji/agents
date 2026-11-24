@@ -1,43 +1,43 @@
-import express from 'express';
-import type http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import type http from 'node:http';
 import axios, { AxiosInstance } from 'axios';
+import express from 'express';
+import { AIClient } from '../ai/AIClient.js';
+import { HanzoAgentsClient } from '../client/HanzoAgentsClient.js';
+import { ExecutionContext, type ExecutionMetadata } from '../context/ExecutionContext.js';
+import { ReasonerContext } from '../context/ReasonerContext.js';
+import { SkillContext } from '../context/SkillContext.js';
+import { DidClient } from '../did/DidClient.js';
+import { DidInterface } from '../did/DidInterface.js';
+import { DidManager } from '../did/DidManager.js';
+import { MCPClientRegistry } from '../mcp/MCPClientRegistry.js';
+import { MCPToolRegistrar } from '../mcp/MCPToolRegistrar.js';
+import type { MemoryBackend } from '../memory/MemoryBackend.js';
+import { MemoryClient } from '../memory/MemoryClient.js';
+import { MemoryEventClient } from '../memory/MemoryEventClient.js';
+import {
+  type MemoryChangeEvent,
+  MemoryInterface,
+  type MemoryWatchHandler,
+} from '../memory/MemoryInterface.js';
+import type { AgentRouter } from '../router/AgentRouter.js';
 import type {
   AgentConfig,
   AgentHandler,
   DeploymentType,
+  DiscoveryOptions,
   HealthStatus,
   ServerlessEvent,
-  ServerlessResponse
+  ServerlessResponse,
 } from '../types/agent.js';
-import { ReasonerRegistry } from './ReasonerRegistry.js';
-import { SkillRegistry } from './SkillRegistry.js';
-import { AgentRouter } from '../router/AgentRouter.js';
+import type { MCPToolRegistration } from '../types/mcp.js';
 import type { ReasonerHandler, ReasonerOptions } from '../types/reasoner.js';
 import type { SkillHandler, SkillOptions } from '../types/skill.js';
-import { ExecutionContext, type ExecutionMetadata } from '../context/ExecutionContext.js';
-import { ReasonerContext } from '../context/ReasonerContext.js';
-import { SkillContext } from '../context/SkillContext.js';
-import { AIClient } from '../ai/AIClient.js';
-import { HanzoAgentsClient } from '../client/HanzoAgentsClient.js';
-import { MemoryClient } from '../memory/MemoryClient.js';
-import type { MemoryBackend } from '../memory/MemoryBackend.js';
-import { MemoryEventClient } from '../memory/MemoryEventClient.js';
-import {
-  MemoryInterface,
-  type MemoryChangeEvent,
-  type MemoryWatchHandler
-} from '../memory/MemoryInterface.js';
-import { DidClient } from '../did/DidClient.js';
-import { DidInterface } from '../did/DidInterface.js';
-import { DidManager } from '../did/DidManager.js';
 import { matchesPattern } from '../utils/pattern.js';
 import { toJsonSchema } from '../utils/schema.js';
 import { WorkflowReporter } from '../workflow/WorkflowReporter.js';
-import type { DiscoveryOptions } from '../types/agent.js';
-import type { MCPToolRegistration } from '../types/mcp.js';
-import { MCPClientRegistry } from '../mcp/MCPClientRegistry.js';
-import { MCPToolRegistrar } from '../mcp/MCPToolRegistrar.js';
+import { ReasonerRegistry } from './ReasonerRegistry.js';
+import { SkillRegistry } from './SkillRegistry.js';
 
 class TargetNotFoundError extends Error {}
 
@@ -54,7 +54,12 @@ export class Agent {
   private readonly memoryEventClient: MemoryEventClient;
   private readonly didClient: DidClient;
   private readonly didManager: DidManager;
-  private readonly memoryWatchers: Array<{ pattern: string; handler: MemoryWatchHandler; scope?: string; scopeId?: string }> = [];
+  private readonly memoryWatchers: Array<{
+    pattern: string;
+    handler: MemoryWatchHandler;
+    scope?: string;
+    scopeId?: string;
+  }> = [];
   private readonly mcpClientRegistry?: MCPClientRegistry;
   private readonly mcpToolRegistrar?: MCPToolRegistrar;
 
@@ -62,7 +67,7 @@ export class Agent {
     const mcp = config.mcp
       ? {
           autoRegisterTools: config.mcp.autoRegisterTools ?? true,
-          ...config.mcp
+          ...config.mcp,
         }
       : undefined;
 
@@ -73,7 +78,7 @@ export class Agent {
       ...config,
       didEnabled: config.didEnabled ?? true,
       deploymentType: config.deploymentType ?? 'long_running',
-      mcp
+      mcp,
     };
 
     this.app = express();
@@ -82,8 +87,12 @@ export class Agent {
     this.aiClient = new AIClient(this.config.aiConfig);
     this.controlPlaneClient = new HanzoAgentsClient(this.config);
     this.memoryClient =
-      this.config.memory ?? new MemoryClient(this.config.controlPlaneUrl!, this.config.defaultHeaders);
-    this.memoryEventClient = new MemoryEventClient(this.config.controlPlaneUrl!, this.config.defaultHeaders);
+      this.config.memory ??
+      new MemoryClient(this.config.controlPlaneUrl!, this.config.defaultHeaders);
+    this.memoryEventClient = new MemoryEventClient(
+      this.config.controlPlaneUrl!,
+      this.config.defaultHeaders
+    );
     this.didClient = new DidClient(this.config.controlPlaneUrl!, this.config.defaultHeaders);
     this.didManager = new DidManager(this.didClient, this.config.nodeId);
     this.memoryEventClient.onEvent((event) => this.dispatchMemoryEvent(event));
@@ -93,7 +102,7 @@ export class Agent {
       this.mcpToolRegistrar = new MCPToolRegistrar(this, this.mcpClientRegistry, {
         namespace: this.config.mcp.namespace,
         tags: this.config.mcp.tags,
-        devMode: this.config.devMode
+        devMode: this.config.devMode,
       });
       this.mcpToolRegistrar.registerServers(this.config.mcp.servers);
     }
@@ -137,10 +146,19 @@ export class Agent {
     };
   }
 
-  watchMemory(pattern: string | string[], handler: MemoryWatchHandler, options?: { scope?: string; scopeId?: string }) {
+  watchMemory(
+    pattern: string | string[],
+    handler: MemoryWatchHandler,
+    options?: { scope?: string; scopeId?: string }
+  ) {
     const patterns = Array.isArray(pattern) ? pattern : [pattern];
     patterns.forEach((p) =>
-      this.memoryWatchers.push({ pattern: p, handler, scope: options?.scope, scopeId: options?.scopeId })
+      this.memoryWatchers.push({
+        pattern: p,
+        handler,
+        scope: options?.scope,
+        scopeId: options?.scopeId,
+      })
     );
     this.memoryEventClient.start();
   }
@@ -165,7 +183,7 @@ export class Agent {
         ? metadata?.sessionId
         : defaultScope === 'actor'
           ? metadata?.actorId
-          : metadata?.workflowId ?? metadata?.runId ?? metadata?.sessionId ?? metadata?.actorId;
+          : (metadata?.workflowId ?? metadata?.runId ?? metadata?.sessionId ?? metadata?.actorId);
     return new MemoryInterface({
       client: this.memoryClient,
       eventClient: this.memoryEventClient,
@@ -182,8 +200,8 @@ export class Agent {
         callerDid: metadata?.callerDid,
         targetDid: metadata?.targetDid,
         agentNodeDid: metadata?.agentNodeDid,
-        agentNodeId: this.config.nodeId
-      }
+        agentNodeId: this.config.nodeId,
+      },
     });
   }
 
@@ -192,23 +210,25 @@ export class Agent {
       executionId: metadata.executionId,
       runId: metadata.runId,
       workflowId: metadata.workflowId,
-      agentNodeId: this.config.nodeId
+      agentNodeId: this.config.nodeId,
     });
   }
 
   getDidInterface(metadata: ExecutionMetadata, defaultInput?: any, targetName?: string) {
     // Resolve DIDs from the identity package if available
-    const agentNodeDid = metadata.agentNodeDid
-      ?? this.didManager.getAgentDid()
-      ?? this.config.defaultHeaders?.['X-Agent-Node-DID']?.toString();
+    const agentNodeDid =
+      metadata.agentNodeDid ??
+      this.didManager.getAgentDid() ??
+      this.config.defaultHeaders?.['X-Agent-Node-DID']?.toString();
 
     // For caller DID: use provided value, or fall back to agent DID
     const callerDid = metadata.callerDid ?? this.didManager.getAgentDid();
 
     // For target DID: use provided value, or resolve from function name
-    const targetDid = metadata.targetDid
-      ?? (targetName ? this.didManager.getFunctionDid(targetName) : undefined)
-      ?? this.didManager.getAgentDid();
+    const targetDid =
+      metadata.targetDid ??
+      (targetName ? this.didManager.getFunctionDid(targetName) : undefined) ??
+      this.didManager.getAgentDid();
 
     return new DidInterface({
       client: this.didClient,
@@ -216,10 +236,10 @@ export class Agent {
         ...metadata,
         agentNodeDid,
         callerDid,
-        targetDid
+        targetDid,
       },
       enabled: Boolean(this.config.didEnabled),
-      defaultInput
+      defaultInput,
     });
   }
 
@@ -231,7 +251,14 @@ export class Agent {
     const baseUrl = (this.config.controlPlaneUrl ?? 'http://localhost:8080').replace(/\/$/, '');
     const uiApiUrl = `${baseUrl}/v1/ui`;
 
-    this.controlPlaneClient.sendNote(message, tags, this.config.nodeId, execMetadata, uiApiUrl, this.config.devMode);
+    this.controlPlaneClient.sendNote(
+      message,
+      tags,
+      this.config.nodeId,
+      execMetadata,
+      uiApiUrl,
+      this.config.devMode
+    );
   }
 
   async serve(): Promise<void> {
@@ -251,9 +278,7 @@ export class Agent {
     // First heartbeat marks the node as starting; subsequent interval sets ready.
     await this.controlPlaneClient.heartbeat('starting');
     await new Promise<void>((resolve, reject) => {
-      this.server = this.app
-        .listen(port, host, () => resolve())
-        .on('error', reject);
+      this.server = this.app.listen(port, host, () => resolve()).on('error', reject);
     });
     this.memoryEventClient.start();
     this.startHeartbeat();
@@ -284,7 +309,7 @@ export class Agent {
         executionId: randomUUID(),
         parentExecutionId: parentMetadata?.executionId,
         runId,
-        workflowId: parentMetadata?.workflowId ?? runId
+        workflowId: parentMetadata?.workflowId ?? runId,
       };
       const dummyReq = {} as express.Request;
       const dummyRes = {} as express.Response;
@@ -292,11 +317,11 @@ export class Agent {
         input,
         metadata: {
           ...metadata,
-          executionId: metadata.executionId ?? randomUUID()
+          executionId: metadata.executionId ?? randomUUID(),
         },
         req: dummyReq,
         res: dummyRes,
-        agent: this
+        agent: this,
       });
       const startTime = Date.now();
 
@@ -313,7 +338,7 @@ export class Agent {
           inputData: status === 'running' ? input : undefined,
           result: status === 'succeeded' ? payload : undefined,
           error: status === 'failed' ? (payload?.message ?? String(payload)) : undefined,
-          durationMs: status === 'running' ? undefined : Date.now() - startTime
+          durationMs: status === 'running' ? undefined : Date.now() - startTime,
         });
       };
 
@@ -339,7 +364,7 @@ export class Agent {
               aiClient: this.aiClient,
               memory: this.getMemoryInterface(execCtx.metadata),
               workflow: this.getWorkflowReporter(execCtx.metadata),
-              did: this.getDidInterface(execCtx.metadata, input, name)
+              did: this.getDidInterface(execCtx.metadata, input, name),
             })
           );
           await emitEvent('succeeded', result);
@@ -361,7 +386,7 @@ export class Agent {
       callerDid: metadata?.callerDid,
       targetDid: metadata?.targetDid,
       agentNodeDid: metadata?.agentNodeDid,
-      agentNodeId: this.config.nodeId
+      agentNodeId: this.config.nodeId,
     });
   }
 
@@ -398,7 +423,7 @@ export class Agent {
       res.json({
         ...this.health(),
         reasoners: this.reasoners.all().map((r) => r.name),
-        skills: this.skills.all().map((s) => s.name)
+        skills: this.skills.all().map((s) => s.name),
       });
     });
 
@@ -412,12 +437,16 @@ export class Agent {
 
     // The addresses the Python SDK serves. A name may carry dots
     // (`node-id.double`), which a segment parameter matches.
-    this.app.post('/reasoners/:name', (req, res) => this.executeReasoner(req, res, req.params.name));
+    this.app.post('/reasoners/:name', (req, res) =>
+      this.executeReasoner(req, res, req.params.name)
+    );
     this.app.post('/skills/:name', (req, res) => this.executeSkill(req, res, req.params.name));
 
     // Serverless-friendly execute endpoint that accepts { target, input } or { reasoner, input }
     this.app.post('/execute', (req, res) => this.executeServerlessHttp(req, res));
-    this.app.post('/execute/:name', (req, res) => this.executeServerlessHttp(req, res, req.params.name));
+    this.app.post('/execute/:name', (req, res) =>
+      this.executeServerlessHttp(req, res, req.params.name)
+    );
   }
 
   private async executeReasoner(req: express.Request, res: express.Response, name: string) {
@@ -429,7 +458,7 @@ export class Agent {
         metadata: this.buildMetadata(req),
         req,
         res,
-        respond: true
+        respond: true,
       });
     } catch (err: any) {
       if (err instanceof TargetNotFoundError) {
@@ -449,7 +478,7 @@ export class Agent {
         metadata: this.buildMetadata(req),
         req,
         res,
-        respond: true
+        respond: true,
       });
     } catch (err: any) {
       if (err instanceof TargetNotFoundError) {
@@ -464,12 +493,16 @@ export class Agent {
     return this.buildMetadataFromHeaders(req.headers);
   }
 
-  private async executeServerlessHttp(req: express.Request, res: express.Response, explicitName?: string) {
+  private async executeServerlessHttp(
+    req: express.Request,
+    res: express.Response,
+    explicitName?: string
+  ) {
     const invocation = this.extractInvocationDetails({
       path: req.path,
       explicitTarget: explicitName,
       query: req.query as Record<string, any>,
-      body: req.body
+      body: req.body,
     });
 
     if (!invocation.name) {
@@ -485,7 +518,7 @@ export class Agent {
         metadata: this.buildMetadata(req),
         req,
         res,
-        respond: true
+        respond: true,
       });
 
       if (result !== undefined && !res.headersSent) {
@@ -523,12 +556,18 @@ export class Agent {
       callerDid: overrides?.callerDid ?? normalized['x-caller-did'],
       targetDid: overrides?.targetDid ?? normalized['x-target-did'],
       agentNodeDid:
-        overrides?.agentNodeDid ?? normalized['x-agent-node-did'] ?? normalized['x-agent-did']
+        overrides?.agentNodeDid ?? normalized['x-agent-node-did'] ?? normalized['x-agent-did'],
     };
   }
 
-  private handleHttpRequest(req: http.IncomingMessage | express.Request, res: http.ServerResponse | express.Response) {
-    const handler = this.app as unknown as (req: http.IncomingMessage, res: http.ServerResponse) => void;
+  private handleHttpRequest(
+    req: http.IncomingMessage | express.Request,
+    res: http.ServerResponse | express.Response
+  ) {
+    const handler = this.app as unknown as (
+      req: http.IncomingMessage,
+      res: http.ServerResponse
+    ) => void;
     return handler(req as any, res as any);
   }
 
@@ -540,7 +579,7 @@ export class Agent {
       return {
         statusCode: 200,
         headers: { 'content-type': 'application/json' },
-        body: this.discoveryPayload(this.config.deploymentType ?? 'serverless')
+        body: this.discoveryPayload(this.config.deploymentType ?? 'serverless'),
       };
     }
 
@@ -552,25 +591,28 @@ export class Agent {
       reasoner: event?.reasoner,
       target: event?.target,
       skill: event?.skill,
-      type: event?.type
+      type: event?.type,
     });
 
     if (!invocation.name) {
       return {
         statusCode: 400,
         headers: { 'content-type': 'application/json' },
-        body: { error: "Missing 'target' or 'reasoner' in request" }
+        body: { error: "Missing 'target' or 'reasoner' in request" },
       };
     }
 
-    const metadata = this.buildMetadataFromHeaders(event?.headers ?? {}, this.mergeExecutionContext(event));
+    const metadata = this.buildMetadataFromHeaders(
+      event?.headers ?? {},
+      this.mergeExecutionContext(event)
+    );
 
     try {
       const result = await this.executeInvocation({
         targetName: invocation.name,
         targetType: invocation.targetType,
         input: invocation.input,
-        metadata
+        metadata,
       });
 
       return { statusCode: 200, headers: { 'content-type': 'application/json' }, body: result };
@@ -579,21 +621,26 @@ export class Agent {
         return {
           statusCode: 404,
           headers: { 'content-type': 'application/json' },
-          body: { error: err.message }
+          body: { error: err.message },
         };
       }
 
       return {
         statusCode: 500,
         headers: { 'content-type': 'application/json' },
-        body: { error: err?.message ?? 'Execution failed' }
+        body: { error: err?.message ?? 'Execution failed' },
       };
     }
   }
 
   private normalizeEventBody(event: ServerlessEvent) {
     const parsed = this.parseBody((event as any)?.body);
-    if (parsed && typeof parsed === 'object' && event?.input !== undefined && (parsed as any).input === undefined) {
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      event?.input !== undefined &&
+      (parsed as any).input === undefined
+    ) {
       return { ...(parsed as Record<string, any>), input: event.input };
     }
     if ((parsed === undefined || parsed === null) && event?.input !== undefined) {
@@ -628,7 +675,7 @@ export class Agent {
       actorId: ctx.actorId ?? (ctx as any).actor_id,
       callerDid: (ctx as any).callerDid ?? (ctx as any).caller_did,
       targetDid: (ctx as any).targetDid ?? (ctx as any).target_did,
-      agentNodeDid: (ctx as any).agentNodeDid ?? (ctx as any).agent_node_did
+      agentNodeDid: (ctx as any).agentNodeDid ?? (ctx as any).agent_node_did,
     };
   }
 
@@ -672,9 +719,7 @@ export class Agent {
     return { name: name ?? undefined, targetType: typeValue, input };
   }
 
-  private parsePathTarget(
-    path?: string
-  ): { name?: string; targetType?: 'reasoner' | 'skill' } {
+  private parsePathTarget(path?: string): { name?: string; targetType?: 'reasoner' | 'skill' } {
     if (!path) return {};
 
     const normalized = path.split('?')[0];
@@ -746,9 +791,9 @@ export class Agent {
       memory_config: r.options?.memoryConfig ?? {
         auto_inject: [] as string[],
         memory_retention: '',
-        cache_results: false
+        cache_results: false,
       },
-      tags: r.options?.tags ?? []
+      tags: r.options?.tags ?? [],
     }));
   }
 
@@ -756,7 +801,7 @@ export class Agent {
     return this.skills.all().map((s) => ({
       id: s.name,
       input_schema: toJsonSchema(s.options?.inputSchema),
-      tags: s.options?.tags ?? []
+      tags: s.options?.tags ?? [],
     }));
   }
 
@@ -766,7 +811,7 @@ export class Agent {
       version: this.config.version,
       deployment_type: deploymentType,
       reasoners: this.reasonerDefinitions(),
-      skills: this.skillDefinitions()
+      skills: this.skillDefinitions(),
     };
   }
 
@@ -820,7 +865,7 @@ export class Agent {
       metadata: params.metadata,
       req,
       res,
-      agent: this
+      agent: this,
     });
 
     return ExecutionContext.run(execCtx, async () => {
@@ -842,7 +887,7 @@ export class Agent {
           aiClient: this.aiClient,
           memory: this.getMemoryInterface(params.metadata),
           workflow: this.getWorkflowReporter(params.metadata),
-          did: this.getDidInterface(params.metadata, params.input, params.targetName)
+          did: this.getDidInterface(params.metadata, params.input, params.targetName),
         });
 
         const result = await reasoner.handler(ctx);
@@ -879,7 +924,7 @@ export class Agent {
       metadata: params.metadata,
       req,
       res,
-      agent: this
+      agent: this,
     });
 
     return ExecutionContext.run(execCtx, async () => {
@@ -894,7 +939,7 @@ export class Agent {
           agent: this,
           memory: this.getMemoryInterface(params.metadata),
           workflow: this.getWorkflowReporter(params.metadata),
-          did: this.getDidInterface(params.metadata, params.input, params.targetName)
+          did: this.getDidInterface(params.metadata, params.input, params.targetName),
         });
 
         const result = await skill.handler(ctx);
@@ -921,9 +966,10 @@ export class Agent {
       const port = this.config.port ?? 8001;
       const hostForUrl = this.config.publicUrl
         ? undefined
-        : (this.config.host && this.config.host !== '0.0.0.0' ? this.config.host : '127.0.0.1');
-      const publicUrl =
-        this.config.publicUrl ?? `http://${hostForUrl ?? '127.0.0.1'}:${port}`;
+        : this.config.host && this.config.host !== '0.0.0.0'
+          ? this.config.host
+          : '127.0.0.1';
+      const publicUrl = this.config.publicUrl ?? `http://${hostForUrl ?? '127.0.0.1'}:${port}`;
 
       await this.controlPlaneClient.register({
         id: this.config.nodeId,
@@ -932,7 +978,7 @@ export class Agent {
         public_url: publicUrl,
         deployment_type: this.config.deploymentType ?? 'long_running',
         reasoners,
-        skills
+        skills,
       });
 
       // Register with DID system if enabled
@@ -942,7 +988,9 @@ export class Agent {
           if (didRegistered) {
             const summary = this.didManager.getIdentitySummary();
             console.log(`[DID] Agent registered with DID: ${summary.agentDid}`);
-            console.log(`[DID] Reasoner DIDs: ${summary.reasonerCount}, Skill DIDs: ${summary.skillCount}`);
+            console.log(
+              `[DID] Reasoner DIDs: ${summary.reasonerCount}, Skill DIDs: ${summary.skillCount}`
+            );
           }
         } catch (didErr) {
           if (!this.config.devMode) {
@@ -979,7 +1027,7 @@ export class Agent {
     return {
       status: 'running',
       node_id: this.config.nodeId,
-      version: this.config.version
+      version: this.config.version,
     };
   }
 
@@ -988,7 +1036,7 @@ export class Agent {
       ? this.mcpClientRegistry.list().map((client) => ({
           alias: client.alias,
           baseUrl: client.baseUrl,
-          transport: client.transport
+          transport: client.transport,
         }))
       : [];
 
@@ -1000,13 +1048,14 @@ export class Agent {
     return {
       status: servers.length ? 'configured' : 'disabled',
       servers,
-      skills
+      skills,
     };
   }
 
   private dispatchMemoryEvent(event: MemoryChangeEvent) {
     this.memoryWatchers.forEach(({ pattern, handler, scope, scopeId }) => {
-      const scopeMatch = (!scope || scope === event.scope) && (!scopeId || scopeId === event.scopeId);
+      const scopeMatch =
+        (!scope || scope === event.scope) && (!scopeId || scopeId === event.scopeId);
       if (scopeMatch && matchesPattern(pattern, event.key)) {
         handler(event);
       }

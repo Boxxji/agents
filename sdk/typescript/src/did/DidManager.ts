@@ -1,8 +1,4 @@
-import {
-  DidClient,
-  type DIDIdentityPackage,
-  type DIDRegistrationRequest
-} from './DidClient.js';
+import type { DIDIdentityPackage, DIDRegistrationRequest, DidClient } from './DidClient.js';
 
 /**
  * Manages DID registration and identity package storage for an agent.
@@ -37,7 +33,7 @@ export class DidManager {
     const request: DIDRegistrationRequest = {
       agentNodeId: this.agentNodeId,
       reasoners,
-      skills
+      skills,
     };
 
     const response = await this.client.registerAgent(request);
@@ -116,11 +112,17 @@ export class DidManager {
       reasonerCount: Object.keys(this.identityPackage.reasonerDids).length,
       skillCount: Object.keys(this.identityPackage.skillDids).length,
       reasonerDids: Object.fromEntries(
-        Object.entries(this.identityPackage.reasonerDids).map(([name, identity]) => [name, identity.did])
+        Object.entries(this.identityPackage.reasonerDids).map(([name, identity]) => [
+          name,
+          identity.did,
+        ])
       ),
       skillDids: Object.fromEntries(
-        Object.entries(this.identityPackage.skillDids).map(([name, identity]) => [name, identity.did])
-      )
+        Object.entries(this.identityPackage.skillDids).map(([name, identity]) => [
+          name,
+          identity.did,
+        ])
+      ),
     };
   }
 }

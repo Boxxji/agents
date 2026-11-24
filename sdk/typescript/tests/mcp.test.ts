@@ -1,5 +1,5 @@
-import express from 'express';
 import type http from 'node:http';
+import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from '../src/agent/Agent.js';
 import { SkillContext } from '../src/context/SkillContext.js';
@@ -30,11 +30,11 @@ describe('MCP integration', () => {
                 inputSchema: {
                   type: 'object',
                   properties: { message: { type: 'string' } },
-                  required: ['message']
-                }
-              }
-            ]
-          }
+                  required: ['message'],
+                },
+              },
+            ],
+          },
         });
         return;
       }
@@ -44,7 +44,7 @@ describe('MCP integration', () => {
         res.json({
           jsonrpc: '2.0',
           id: req.body?.id ?? 1,
-          result: { echoed: message ?? null }
+          result: { echoed: message ?? null },
         });
         return;
       }
@@ -71,8 +71,8 @@ describe('MCP integration', () => {
       devMode: true,
       mcp: {
         servers: [{ alias: 'demo', url: baseUrl }],
-        autoRegisterTools: true
-      }
+        autoRegisterTools: true,
+      },
     });
 
     const { registered } = await agent.registerMcpTools();
@@ -92,9 +92,20 @@ describe('MCP integration', () => {
       req: {} as any,
       res: {} as any,
       agent,
-      memory: agent.getMemoryInterface({ executionId: 'exec-1', runId: 'run-1', workflowId: 'wf-1' }),
-      workflow: agent.getWorkflowReporter({ executionId: 'exec-1', runId: 'run-1', workflowId: 'wf-1' } as any),
-      did: agent.getDidInterface({ executionId: 'exec-1', runId: 'run-1', workflowId: 'wf-1' } as any, { message: 'hello' })
+      memory: agent.getMemoryInterface({
+        executionId: 'exec-1',
+        runId: 'run-1',
+        workflowId: 'wf-1',
+      }),
+      workflow: agent.getWorkflowReporter({
+        executionId: 'exec-1',
+        runId: 'run-1',
+        workflowId: 'wf-1',
+      } as any),
+      did: agent.getDidInterface(
+        { executionId: 'exec-1', runId: 'run-1', workflowId: 'wf-1' } as any,
+        { message: 'hello' }
+      ),
     });
 
     const result = await skill!.handler(ctx as any);
@@ -102,7 +113,7 @@ describe('MCP integration', () => {
       status: 'success',
       result: { echoed: 'hello' },
       server: 'demo',
-      tool: 'echo'
+      tool: 'echo',
     });
   });
 });

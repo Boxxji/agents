@@ -1,7 +1,7 @@
 # hanzoai/agents — the agents monorepo (npm workspaces + turbo:
 # apps/consensus, apps/desktop, packages/shared, sdk/typescript).
 #
-# "No image here" was true of the DESKTOP app — that ships as an electron bundle
+# "No image here" was true of the DESKTOP app — that ships as a Tauri v2 bundle
 # — but not of the repo: build.yml published ghcr.io/hanzoai/agents from
 # deployments/docker/Dockerfile.control-plane, and the registry holds it
 # (latest, 0.1.0). That file sat in .github/workflows, which git.hanzo.ai stops
@@ -21,10 +21,8 @@ images:
 # .d.ts. That is the edge this repo breaks on — a change to shared typechecks
 # perfectly inside shared and breaks its consumer.
 #
-# --ignore-scripts on the install: apps/desktop's postinstall is
-# electron-rebuild, which downloads an Electron distribution and rebuilds native
-# modules. A typecheck needs none of that, and a gate that pulls a ~100 MB
-# binary is a gate that fails when a CDN does.
+# --ignore-scripts on the install: native desktop sidecar modules (node-pty,
+# sqlite3, keytar) are not needed for a static typecheck gate.
 test:
   - name: type-check
     run: |

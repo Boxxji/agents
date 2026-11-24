@@ -1,10 +1,10 @@
 import type express from 'express';
-import { ExecutionContext } from './ExecutionContext.js';
 import type { Agent } from '../agent/Agent.js';
-import type { MemoryInterface } from '../memory/MemoryInterface.js';
-import type { WorkflowReporter } from '../workflow/WorkflowReporter.js';
-import type { DiscoveryOptions } from '../types/agent.js';
 import type { DidInterface } from '../did/DidInterface.js';
+import type { MemoryInterface } from '../memory/MemoryInterface.js';
+import type { DiscoveryOptions } from '../types/agent.js';
+import type { WorkflowReporter } from '../workflow/WorkflowReporter.js';
+import { ExecutionContext } from './ExecutionContext.js';
 
 export class SkillContext<TInput = any> {
   readonly input: TInput;
@@ -69,6 +69,6 @@ export function getCurrentSkillContext<TInput = any>(): SkillContext<TInput> | u
     agent,
     memory: agent.getMemoryInterface(metadata),
     workflow: agent.getWorkflowReporter(metadata),
-    did: agent.getDidInterface(metadata, input)
+    did: agent.getDidInterface(metadata, input),
   });
 }

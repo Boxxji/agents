@@ -34,7 +34,7 @@ export class MCPClientRegistry {
         status: 'disabled',
         totalServers: 0,
         healthyServers: 0,
-        servers: []
+        servers: [],
       };
     }
 
@@ -45,7 +45,7 @@ export class MCPClientRegistry {
           alias: client.alias,
           baseUrl: client.baseUrl,
           transport: client.transport,
-          healthy
+          healthy,
         };
       })
     );
@@ -58,7 +58,7 @@ export class MCPClientRegistry {
       status,
       totalServers: results.length,
       healthyServers: healthyCount,
-      servers: results
+      servers: results,
     };
   }
 }

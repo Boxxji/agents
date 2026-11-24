@@ -6,16 +6,16 @@
  * or from the preload module.
  */
 
-import type { CanvasState, CanvasMetadata } from '../main/types/database';
 import type { CodingAgentAPI } from '../main/services/coding-agent';
+import type { CanvasMetadata, CanvasState } from '../main/types/database';
 
 // Re-export types from shared for consumers that import from this file
 export type {
-  ElectronAPI,
+  AgentStatusAPI,
   EditorApp,
+  ElectronAPI,
   ShellAPI,
   WorktreeAPI,
-  AgentStatusAPI,
 } from '@hanzo/agents-shared';
 
 // Desktop-specific CanvasAPI that uses concrete types from database module
@@ -30,12 +30,7 @@ export interface CanvasAPI {
 }
 
 // Import types for Window interface declaration
-import type {
-  ElectronAPI,
-  ShellAPI,
-  WorktreeAPI,
-  AgentStatusAPI,
-} from '@hanzo/agents-shared';
+import type { AgentStatusAPI, ElectronAPI, ShellAPI, WorktreeAPI } from '@hanzo/agents-shared';
 
 declare global {
   interface Window {

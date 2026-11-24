@@ -1,16 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import axios from 'axios';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DidClient } from '../src/did/DidClient.js';
 import { DidInterface } from '../src/did/DidInterface.js';
 
 vi.mock('axios', () => {
   const create = vi.fn(() => ({
     post: vi.fn(),
-    get: vi.fn()
+    get: vi.fn(),
   }));
   return {
     default: { create },
-    create
+    create,
   };
 });
 
@@ -42,8 +42,8 @@ describe('DidClient', () => {
         input_hash: 'ih',
         output_hash: 'oh',
         status: 'succeeded',
-        created_at: '2025-01-01T00:00:00Z'
-      }
+        created_at: '2025-01-01T00:00:00Z',
+      },
     });
     http.post = post;
 
@@ -55,12 +55,12 @@ describe('DidClient', () => {
         callerDid: 'caller',
         targetDid: 'target',
         agentNodeDid: 'agent-1',
-        timestamp: '2025-01-01T00:00:00Z'
+        timestamp: '2025-01-01T00:00:00Z',
       },
       inputData: { foo: 'bar' },
       outputData: { ok: true },
       status: 'succeeded',
-      durationMs: 42
+      durationMs: 42,
     });
 
     expect(post).toHaveBeenCalledWith(
@@ -73,16 +73,20 @@ describe('DidClient', () => {
           caller_did: 'caller',
           target_did: 'target',
           agent_node_did: 'agent-1',
-          timestamp: '2025-01-01T00:00:00Z'
+          timestamp: '2025-01-01T00:00:00Z',
         }),
         status: 'succeeded',
-        duration_ms: 42
+        duration_ms: 42,
       }),
       expect.any(Object)
     );
     const [, payload] = post.mock.calls[0] as any[];
-    expect(payload.input_data).toBe(Buffer.from(JSON.stringify({ foo: 'bar' }), 'utf-8').toString('base64'));
-    expect(payload.output_data).toBe(Buffer.from(JSON.stringify({ ok: true }), 'utf-8').toString('base64'));
+    expect(payload.input_data).toBe(
+      Buffer.from(JSON.stringify({ foo: 'bar' }), 'utf-8').toString('base64')
+    );
+    expect(payload.output_data).toBe(
+      Buffer.from(JSON.stringify({ ok: true }), 'utf-8').toString('base64')
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -90,7 +94,7 @@ describe('DidClient', () => {
         executionId: 'exec-1',
         workflowId: 'wf-1',
         callerDid: 'caller',
-        targetDid: 'target'
+        targetDid: 'target',
       })
     );
   });
@@ -110,8 +114,8 @@ describe('DidClient', () => {
             caller_did: 'caller',
             target_did: 'target',
             status: 'succeeded',
-            created_at: '2025-01-01T00:00:00Z'
-          }
+            created_at: '2025-01-01T00:00:00Z',
+          },
         ],
         workflow_vcs: [
           {
@@ -123,10 +127,10 @@ describe('DidClient', () => {
             start_time: '2025-01-01T00:00:00Z',
             end_time: '2025-01-01T00:00:01Z',
             total_steps: 1,
-            completed_steps: 1
-          }
-        ]
-      }
+            completed_steps: 1,
+          },
+        ],
+      },
     });
 
     const result = await client.exportAuditTrail({ workflowId: 'wf-1', status: 'succeeded' });
@@ -134,7 +138,7 @@ describe('DidClient', () => {
     expect(http.get).toHaveBeenCalledWith(
       '/v1/did/export/vcs',
       expect.objectContaining({
-        params: expect.objectContaining({ workflow_id: 'wf-1', status: 'succeeded' })
+        params: expect.objectContaining({ workflow_id: 'wf-1', status: 'succeeded' }),
       })
     );
     expect(result.executionVcs[0].vcId).toBe('vc-1');
@@ -155,10 +159,10 @@ describe('DidInterface', () => {
         sessionId: 'sess-1',
         callerDid: 'caller',
         targetDid: 'target',
-        agentNodeDid: 'agent'
+        agentNodeDid: 'agent',
       },
       enabled: true,
-      defaultInput: { foo: 'bar' }
+      defaultInput: { foo: 'bar' },
     });
 
     await did.generateCredential({ outputData: { ok: true }, status: 'succeeded', durationMs: 10 });
@@ -171,12 +175,12 @@ describe('DidInterface', () => {
           sessionId: 'sess-1',
           callerDid: 'caller',
           targetDid: 'target',
-          agentNodeDid: 'agent'
+          agentNodeDid: 'agent',
         }),
         inputData: { foo: 'bar' },
         outputData: { ok: true },
         status: 'succeeded',
-        durationMs: 10
+        durationMs: 10,
       })
     );
   });
@@ -185,7 +189,7 @@ describe('DidInterface', () => {
     const did = new DidInterface({
       client: {} as any,
       metadata: { executionId: 'exec-1' } as any,
-      enabled: false
+      enabled: false,
     });
 
     await expect(did.generateCredential()).rejects.toThrow(/disabled/);

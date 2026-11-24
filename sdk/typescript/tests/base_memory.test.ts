@@ -1,5 +1,5 @@
-import { describe, expect, it, afterEach } from 'vitest';
 import http from 'node:http';
+import { afterEach, describe, expect, it } from 'vitest';
 import { BaseMemory } from '../src/memory/BaseMemory.js';
 
 /**
@@ -44,7 +44,14 @@ class FakeBase {
       const record = this.create(body);
       return record
         ? json(res, record, 201)
-        : json(res, { message: 'Failed to create record.', data: { mkey: { code: 'validation_not_unique' } } }, 400);
+        : json(
+            res,
+            {
+              message: 'Failed to create record.',
+              data: { mkey: { code: 'validation_not_unique' } },
+            },
+            400
+          );
     }
     if (req.method === 'PATCH' && id) return json(res, this.patch(id, body));
     if (req.method === 'DELETE' && id) {
@@ -63,7 +70,7 @@ class FakeBase {
       want[field] = unescape(value);
     }
 
-    let hits = [...this.records.values()].filter(
+    const hits = [...this.records.values()].filter(
       (rec) =>
         rec.scope === want.scope &&
         rec.scope_id === want.scope_id &&
@@ -189,7 +196,9 @@ describe('BaseMemory', () => {
     await memory.delete('temp', { scope: 'session', scopeId: 's1' });
 
     expect(await memory.get('temp', { scope: 'session', scopeId: 's1' })).toBeUndefined();
-    await expect(memory.delete('temp', { scope: 'session', scopeId: 's1' })).resolves.toBeUndefined();
+    await expect(
+      memory.delete('temp', { scope: 'session', scopeId: 's1' })
+    ).resolves.toBeUndefined();
   });
 
   it('lists every page, not the first', async () => {
@@ -259,8 +268,12 @@ describe('BaseMemory', () => {
     await memory.set('step', 'one', { scope: 'workflow', metadata: { workflowId: 'w1' } });
     await memory.set('step', 'two', { scope: 'workflow', metadata: { workflowId: 'w2' } });
 
-    expect(await memory.get('step', { scope: 'workflow', metadata: { workflowId: 'w1' } })).toBe('one');
-    expect(await memory.get('step', { scope: 'workflow', metadata: { workflowId: 'w2' } })).toBe('two');
+    expect(await memory.get('step', { scope: 'workflow', metadata: { workflowId: 'w1' } })).toBe(
+      'one'
+    );
+    expect(await memory.get('step', { scope: 'workflow', metadata: { workflowId: 'w2' } })).toBe(
+      'two'
+    );
   });
 
   it('files global under the id every SDK uses', async () => {
@@ -273,7 +286,12 @@ describe('BaseMemory', () => {
     const memory = await backedByFake();
     fake!.beforeCreate = () => {
       fake!.beforeCreate = undefined;
-      fake!.insert({ scope: 'session', scope_id: 's1', mkey: 'k', value: JSON.stringify('theirs') });
+      fake!.insert({
+        scope: 'session',
+        scope_id: 's1',
+        mkey: 'k',
+        value: JSON.stringify('theirs'),
+      });
     };
     await memory.set('k', 'ours', { scope: 'session', scopeId: 's1' });
 
@@ -283,7 +301,9 @@ describe('BaseMemory', () => {
 
   it('names a path Base does not serve, rather than failing to parse it', async () => {
     const memory = await backedByFake('wrong_collection');
-    await expect(memory.get('anything', { scope: 'session', scopeId: 's1' })).rejects.toThrow(/HTML/);
+    await expect(memory.get('anything', { scope: 'session', scopeId: 's1' })).rejects.toThrow(
+      /HTML/
+    );
   });
 
   it('quotes a scope id so a quote in one cannot end the clause', async () => {

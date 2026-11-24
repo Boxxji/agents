@@ -1,5 +1,10 @@
 import type { ExecutionMetadata } from '../context/ExecutionContext.js';
-import { DidClient, type AuditTrailFilters, type ExecutionCredential, type AuditTrailExport } from './DidClient.js';
+import type {
+  AuditTrailExport,
+  AuditTrailFilters,
+  DidClient,
+  ExecutionCredential,
+} from './DidClient.js';
 
 export interface GenerateCredentialOptions {
   inputData?: any;
@@ -23,7 +28,12 @@ export class DidInterface {
   private readonly enabled: boolean;
   private readonly defaultInput: any;
 
-  constructor(params: { client: DidClient; metadata: ExecutionMetadata; enabled: boolean; defaultInput?: any }) {
+  constructor(params: {
+    client: DidClient;
+    metadata: ExecutionMetadata;
+    enabled: boolean;
+    defaultInput?: any;
+  }) {
     this.client = params.client;
     this.metadata = params.metadata;
     this.enabled = params.enabled;
@@ -32,7 +42,9 @@ export class DidInterface {
 
   async generateCredential(options: GenerateCredentialOptions = {}): Promise<ExecutionCredential> {
     if (!this.enabled) {
-      throw new Error('DID/VC features are disabled. Enable didEnabled in AgentConfig to use ctx.did.');
+      throw new Error(
+        'DID/VC features are disabled. Enable didEnabled in AgentConfig to use ctx.did.'
+      );
     }
 
     const executionContext = {
@@ -42,7 +54,7 @@ export class DidInterface {
       callerDid: options.callerDid ?? this.metadata.callerDid,
       targetDid: options.targetDid ?? this.metadata.targetDid,
       agentNodeDid: options.agentNodeDid ?? this.metadata.agentNodeDid,
-      timestamp: options.timestamp
+      timestamp: options.timestamp,
     };
 
     return this.client.generateCredential({
@@ -52,13 +64,15 @@ export class DidInterface {
       status: options.status,
       errorMessage: options.errorMessage,
       durationMs: options.durationMs,
-      headers: options.headers
+      headers: options.headers,
     });
   }
 
   exportAuditTrail(filters?: AuditTrailFilters): Promise<AuditTrailExport> {
     if (!this.enabled) {
-      throw new Error('DID/VC features are disabled. Enable didEnabled in AgentConfig to use ctx.did.');
+      throw new Error(
+        'DID/VC features are disabled. Enable didEnabled in AgentConfig to use ctx.did.'
+      );
     }
     return this.client.exportAuditTrail(filters);
   }

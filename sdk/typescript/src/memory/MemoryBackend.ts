@@ -2,7 +2,7 @@ import type { MemoryScope } from '../types/agent.js';
 import type {
   MemoryRequestOptions,
   VectorSearchOptions,
-  VectorSearchResult
+  VectorSearchResult,
 } from './MemoryClient.js';
 
 /**
@@ -16,13 +16,16 @@ import type {
  * the narrowest one that execution names, and global otherwise. Global's id is
  * "global" in every SDK, so their records meet.
  */
-export function resolveScope(options: MemoryRequestOptions = {}): { scope: MemoryScope; scopeId: string } {
+export function resolveScope(options: MemoryRequestOptions = {}): {
+  scope: MemoryScope;
+  scopeId: string;
+} {
   const { scope, scopeId, metadata } = options;
   const ids: Record<MemoryScope, string | undefined> = {
     workflow: metadata?.workflowId ?? metadata?.runId,
     session: metadata?.sessionId,
     actor: metadata?.actorId,
-    global: 'global'
+    global: 'global',
   };
   if (scope) return { scope, scopeId: scopeId ?? ids[scope] ?? '' };
   const named = (['workflow', 'session', 'actor'] as const).find((s) => ids[s]);

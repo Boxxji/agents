@@ -75,7 +75,7 @@ export function extractAssistantTextContent(message: SDKAssistantMessage): strin
   // Handle array of content blocks - extract text blocks only
   if (Array.isArray(content)) {
     return content
-      .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+      .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
       .map((block) => block.text)
       .join('\n');
   }

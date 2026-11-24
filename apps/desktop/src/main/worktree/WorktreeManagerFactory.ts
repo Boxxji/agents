@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { app } from 'electron';
+import { getUserDataPath } from '../paths';
 import type { WorktreeManagerConfig } from '../types/worktree';
 import {
   ConsoleLogger,
@@ -43,7 +43,7 @@ export class WorktreeManagerFactory {
       throw new Error('WorktreeManagerFactory not configured. Call configure() first.');
     }
 
-    const dbPath = path.join(app.getPath('userData'), 'worktrees.db');
+    const dbPath = path.join(getUserDataPath(), 'worktrees.db');
 
     const store = new WorktreeStore(dbPath);
     const git = new GitExecutor();

@@ -39,5 +39,8 @@ export class AgentRouter {
 }
 
 function sanitize(value: string) {
-  return value.replace(/[^0-9a-zA-Z]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  return value
+    .replace(/[^0-9a-zA-Z]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }

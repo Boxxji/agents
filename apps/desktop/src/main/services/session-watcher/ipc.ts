@@ -1,11 +1,8 @@
 import type { CodingAgentType, SessionFileChangeEvent } from '@hanzo/agents-shared';
-import { type BrowserWindow, ipcMain } from 'electron';
+import { ipcBus } from '../../ipc-bus';
 import { getCodingAgent } from '../coding-agent';
 import { SessionFileWatcher } from './SessionFileWatcher';
 
-/**
- * IPC response wrapper for consistent error handling
- */
 interface IPCResponse<T> {
   success: boolean;
   data?: T;
@@ -22,14 +19,7 @@ function errorResponse(error: string): IPCResponse<never> {
 
 let sessionFileWatcher: SessionFileWatcher | null = null;
 
-/**
- * Register IPC handlers for session file watching.
- * Must be called after BrowserWindow is created.
- *
- * @param win - The main BrowserWindow to send events to
- */
-export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
-  // Initialize watcher
+export function registerSessionWatcherIpcHandlers(): void {
   sessionFileWatcher = new SessionFileWatcher({
     debounceMs: 300,
     maxDebounceMs: 1000,
@@ -37,15 +27,11 @@ export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
 
   sessionFileWatcher.initialize();
 
-  // Forward change events to renderer
   sessionFileWatcher.on('change', (event: SessionFileChangeEvent) => {
-    if (!win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send('session:file-changed', event);
-    }
+    ipcBus.broadcast('session:file-changed', event);
   });
 
-  // Handle watch requests from renderer
-  ipcMain.handle(
+  ipcBus.handle(
     'session-watcher:watch',
     async (_event, agentType: CodingAgentType): Promise<IPCResponse<void>> => {
       try {
@@ -53,7 +39,6 @@ export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
           return errorResponse('SessionFileWatcher not initialized');
         }
 
-        // Get data paths from the agent's chat history provider
         const agentResult = await getCodingAgent(agentType, {
           skipCliVerification: true,
         });
@@ -62,9 +47,7 @@ export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
           return errorResponse(agentResult.error.message);
         }
 
-        const agent = agentResult.data;
-
-        const dataPaths = agent.getDataPaths();
+        const dataPaths = agentResult.data.getDataPaths();
         sessionFileWatcher.watchAgent(agentType, dataPaths);
 
         console.log('[Main] Started session file watching', { agentType, dataPaths });
@@ -76,8 +59,7 @@ export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
     }
   );
 
-  // Handle unwatch requests
-  ipcMain.handle(
+  ipcBus.handle(
     'session-watcher:unwatch',
     async (_event, agentType: CodingAgentType): Promise<IPCResponse<void>> => {
       try {
@@ -93,8 +75,7 @@ export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
     }
   );
 
-  // Get watch status
-  ipcMain.handle(
+  ipcBus.handle(
     'session-watcher:status',
     async (): Promise<
       IPCResponse<{
@@ -117,10 +98,6 @@ export function registerSessionWatcherIpcHandlers(win: BrowserWindow): void {
   console.log('[Main] Session watcher IPC handlers registered');
 }
 
-/**
- * Dispose of the session watcher and clean up resources.
- * Should be called on app quit.
- */
 export function disposeSessionWatcher(): void {
   if (sessionFileWatcher) {
     sessionFileWatcher.dispose();

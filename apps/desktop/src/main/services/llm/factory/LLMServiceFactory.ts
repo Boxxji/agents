@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { getAppName } from '../../../paths';
 import { ConsoleLogger } from '../../../worktree/dependencies/ConsoleLogger';
 import { KeychainApiKeyRepository } from '../dependencies';
 import { VercelAILLMService } from '../implementations';
@@ -82,7 +82,7 @@ export class LLMServiceFactory {
    */
   static getApiKeyRepository(): IApiKeyRepository {
     if (!LLMServiceFactory.apiKeyRepository) {
-      const serviceName = app?.getName?.() || 'HanzoAgents';
+      const serviceName = getAppName();
       LLMServiceFactory.apiKeyRepository = new KeychainApiKeyRepository(serviceName);
     }
     return LLMServiceFactory.apiKeyRepository;

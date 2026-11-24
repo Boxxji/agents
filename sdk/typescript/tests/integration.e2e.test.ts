@@ -1,8 +1,8 @@
-import express from 'express';
 import http from 'node:http';
 import axios from 'axios';
+import express from 'express';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
-import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { Agent } from '../src/agent/Agent.js';
 import { HanzoAgentsClient } from '../src/client/HanzoAgentsClient.js';
 
@@ -59,7 +59,7 @@ function forwardMetadataHeaders(headers: http.IncomingHttpHeaders) {
     'x-caller-did',
     'x-target-did',
     'x-agent-node-did',
-    'x-agent-node-id'
+    'x-agent-node-id',
   ];
   const forwarded: Record<string, string> = {};
   for (const key of allowed) {
@@ -101,7 +101,7 @@ async function createControlPlaneStub() {
     agents.set(payload.id, {
       baseUrl: payload.base_url ?? payload.public_url,
       reasoners: payload.reasoners ?? [],
-      skills: payload.skills ?? []
+      skills: payload.skills ?? [],
     });
     res.json({ ok: true });
   });
@@ -134,14 +134,14 @@ async function createControlPlaneStub() {
         invocation_target: `${agentId}.${r.id}`,
         tags: r.tags ?? [],
         input_schema: r.input_schema ?? {},
-        output_schema: r.output_schema ?? {}
+        output_schema: r.output_schema ?? {},
       })),
       skills: info.skills.map((s: any) => ({
         id: s.id,
         invocation_target: `${agentId}.${s.id}`,
         tags: s.tags ?? [],
-        input_schema: s.input_schema ?? {}
-      }))
+        input_schema: s.input_schema ?? {},
+      })),
     }));
 
     const totalReasoners = capabilities.reduce((total, cap) => total + cap.reasoners.length, 0);
@@ -153,13 +153,15 @@ async function createControlPlaneStub() {
       total_reasoners: totalReasoners,
       total_skills: totalSkills,
       pagination: { limit: capabilities.length, offset: 0, has_more: false },
-      capabilities
+      capabilities,
     });
   });
 
   app.post('/v1/execute/:target', async (req, res) => {
     const rawTarget = req.params.target;
-    const [agentIdMaybe, nameMaybe] = rawTarget.includes('.') ? rawTarget.split('.', 2) : [undefined, rawTarget];
+    const [agentIdMaybe, nameMaybe] = rawTarget.includes('.')
+      ? rawTarget.split('.', 2)
+      : [undefined, rawTarget];
     const agentId = agentIdMaybe ?? registrations.at(-1)?.id;
     const name = nameMaybe ?? rawTarget;
     const agentInfo = agentId ? agents.get(agentId) : undefined;
@@ -174,11 +176,13 @@ async function createControlPlaneStub() {
 
     try {
       const response = await axios.post(`${agentInfo.baseUrl}${path}`, req.body?.input ?? {}, {
-        headers: forwardMetadataHeaders(req.headers)
+        headers: forwardMetadataHeaders(req.headers),
       });
       res.json({ result: response.data });
     } catch (err: any) {
-      res.status(err?.response?.status ?? 500).json(err?.response?.data ?? { error: 'Forward failed' });
+      res
+        .status(err?.response?.status ?? 500)
+        .json(err?.response?.data ?? { error: 'Forward failed' });
     }
   });
 
@@ -233,7 +237,7 @@ async function createControlPlaneStub() {
         key: req.body?.key,
         embedding: req.body?.embedding ?? [],
         scope,
-        scopeId
+        scopeId,
       });
     }
     res.json({ ok: true });
@@ -249,7 +253,7 @@ async function createControlPlaneStub() {
         key: entry.key,
         scope: entry.scope,
         scopeId: entry.scopeId ?? '',
-        score: 1.0
+        score: 1.0,
       }));
     res.json(matches);
   });
@@ -278,7 +282,7 @@ async function createControlPlaneStub() {
       sockets.forEach((socket) => socket.close());
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
+    },
   };
 }
 
@@ -298,7 +302,7 @@ describe('TypeScript SDK integration', () => {
       host: '127.0.0.1',
       controlPlaneUrl: control.url,
       heartbeatIntervalMs: 20,
-      devMode: false
+      devMode: false,
     });
 
     agent.reasoner('echo', async (ctx) => {
@@ -308,7 +312,7 @@ describe('TypeScript SDK integration', () => {
         echoed: ctx.input.message,
         stored,
         workflowId: ctx.workflowId,
-        runId: ctx.runId
+        runId: ctx.runId,
       };
     });
 
@@ -338,7 +342,12 @@ describe('TypeScript SDK integration', () => {
   });
 
   it('executes through the control plane and persists memory', async () => {
-    const result = await client.execute<{ echoed: string; stored: string; workflowId: string; runId: string }>(
+    const result = await client.execute<{
+      echoed: string;
+      stored: string;
+      workflowId: string;
+      runId: string;
+    }>(
       'ts-e2e-agent.echo',
       { message: 'integration-hello' },
       { runId: 'run-42', workflowId: 'wf-42' }
@@ -349,7 +358,8 @@ describe('TypeScript SDK integration', () => {
     expect(result.workflowId).toBe('wf-42');
 
     const stored = control.memory.find(
-      (entry) => entry.key === 'last_input' && entry.scope === 'workflow' && entry.scopeId === 'wf-42'
+      (entry) =>
+        entry.key === 'last_input' && entry.scope === 'workflow' && entry.scopeId === 'wf-42'
     );
     expect(stored?.value).toBe('integration-hello');
   });

@@ -1,20 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AIClient } from '../src/ai/AIClient.js';
 
 // Hoist all mocks
-const {
-  generateTextMock,
-  generateObjectMock,
-  streamTextMock,
-  embedMock,
-  embedManyMock
-} = vi.hoisted(() => ({
-  generateTextMock: vi.fn(),
-  generateObjectMock: vi.fn(),
-  streamTextMock: vi.fn(),
-  embedMock: vi.fn(),
-  embedManyMock: vi.fn()
-}));
+const { generateTextMock, generateObjectMock, streamTextMock, embedMock, embedManyMock } =
+  vi.hoisted(() => ({
+    generateTextMock: vi.fn(),
+    generateObjectMock: vi.fn(),
+    streamTextMock: vi.fn(),
+    embedMock: vi.fn(),
+    embedManyMock: vi.fn(),
+  }));
 
 // Provider factory mocks
 const {
@@ -25,7 +20,7 @@ const {
   createGroqMock,
   createXaiMock,
   createDeepSeekMock,
-  createCohereMock
+  createCohereMock,
 } = vi.hoisted(() => {
   const makeMockProvider = (name: string) => {
     const embeddingFn = vi.fn((modelId: string) => ({ id: `${name}-embed-${modelId}` }));
@@ -44,7 +39,7 @@ const {
     createGroqMock: makeMockProvider('groq'),
     createXaiMock: makeMockProvider('xai'),
     createDeepSeekMock: makeMockProvider('deepseek'),
-    createCohereMock: makeMockProvider('cohere')
+    createCohereMock: makeMockProvider('cohere'),
   };
 });
 
@@ -54,39 +49,39 @@ vi.mock('ai', () => ({
   generateObject: generateObjectMock,
   streamText: streamTextMock,
   embed: embedMock,
-  embedMany: embedManyMock
+  embedMany: embedManyMock,
 }));
 
 vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: createOpenAIMock.factory
+  createOpenAI: createOpenAIMock.factory,
 }));
 
 vi.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: createAnthropicMock.factory
+  createAnthropic: createAnthropicMock.factory,
 }));
 
 vi.mock('@ai-sdk/google', () => ({
-  createGoogleGenerativeAI: createGoogleMock.factory
+  createGoogleGenerativeAI: createGoogleMock.factory,
 }));
 
 vi.mock('@ai-sdk/mistral', () => ({
-  createMistral: createMistralMock.factory
+  createMistral: createMistralMock.factory,
 }));
 
 vi.mock('@ai-sdk/groq', () => ({
-  createGroq: createGroqMock.factory
+  createGroq: createGroqMock.factory,
 }));
 
 vi.mock('@ai-sdk/xai', () => ({
-  createXai: createXaiMock.factory
+  createXai: createXaiMock.factory,
 }));
 
 vi.mock('@ai-sdk/deepseek', () => ({
-  createDeepSeek: createDeepSeekMock.factory
+  createDeepSeek: createDeepSeekMock.factory,
 }));
 
 vi.mock('@ai-sdk/cohere', () => ({
-  createCohere: createCohereMock.factory
+  createCohere: createCohereMock.factory,
 }));
 
 describe('AIClient', () => {
@@ -118,7 +113,11 @@ describe('AIClient', () => {
     });
 
     it('creates Anthropic provider when specified', async () => {
-      const client = new AIClient({ provider: 'anthropic', apiKey: 'test-key', model: 'claude-3-opus' });
+      const client = new AIClient({
+        provider: 'anthropic',
+        apiKey: 'test-key',
+        model: 'claude-3-opus',
+      });
       await client.generate('test prompt');
 
       expect(createAnthropicMock.factory).toHaveBeenCalledWith(
@@ -128,7 +127,11 @@ describe('AIClient', () => {
     });
 
     it('creates Google provider when specified', async () => {
-      const client = new AIClient({ provider: 'google', apiKey: 'test-key', model: 'gemini-2.0-flash' });
+      const client = new AIClient({
+        provider: 'google',
+        apiKey: 'test-key',
+        model: 'gemini-2.0-flash',
+      });
       await client.generate('test prompt');
 
       expect(createGoogleMock.factory).toHaveBeenCalledWith(
@@ -138,7 +141,11 @@ describe('AIClient', () => {
     });
 
     it('creates Mistral provider when specified', async () => {
-      const client = new AIClient({ provider: 'mistral', apiKey: 'test-key', model: 'mistral-large' });
+      const client = new AIClient({
+        provider: 'mistral',
+        apiKey: 'test-key',
+        model: 'mistral-large',
+      });
       await client.generate('test prompt');
 
       expect(createMistralMock.factory).toHaveBeenCalledWith(
@@ -168,7 +175,11 @@ describe('AIClient', () => {
     });
 
     it('creates DeepSeek provider when specified', async () => {
-      const client = new AIClient({ provider: 'deepseek', apiKey: 'test-key', model: 'deepseek-chat' });
+      const client = new AIClient({
+        provider: 'deepseek',
+        apiKey: 'test-key',
+        model: 'deepseek-chat',
+      });
       await client.generate('test prompt');
 
       expect(createDeepSeekMock.factory).toHaveBeenCalledWith(
@@ -178,7 +189,11 @@ describe('AIClient', () => {
     });
 
     it('creates Cohere provider when specified', async () => {
-      const client = new AIClient({ provider: 'cohere', apiKey: 'test-key', model: 'command-r-plus' });
+      const client = new AIClient({
+        provider: 'cohere',
+        apiKey: 'test-key',
+        model: 'command-r-plus',
+      });
       await client.generate('test prompt');
 
       expect(createCohereMock.factory).toHaveBeenCalledWith(
@@ -188,13 +203,17 @@ describe('AIClient', () => {
     });
 
     it('creates OpenRouter with correct baseURL', async () => {
-      const client = new AIClient({ provider: 'openrouter', apiKey: 'test-key', model: 'anthropic/claude-3' });
+      const client = new AIClient({
+        provider: 'openrouter',
+        apiKey: 'test-key',
+        model: 'anthropic/claude-3',
+      });
       await client.generate('test prompt');
 
       expect(createOpenAIMock.factory).toHaveBeenCalledWith(
         expect.objectContaining({
           apiKey: 'test-key',
-          baseURL: 'https://openrouter.ai/api/v1'
+          baseURL: 'https://openrouter.ai/api/v1',
         })
       );
     });
@@ -206,7 +225,7 @@ describe('AIClient', () => {
       expect(createOpenAIMock.factory).toHaveBeenCalledWith(
         expect.objectContaining({
           apiKey: 'ollama',
-          baseURL: 'http://localhost:11434/v1'
+          baseURL: 'http://localhost:11434/v1',
         })
       );
     });
@@ -215,13 +234,13 @@ describe('AIClient', () => {
       const client = new AIClient({
         provider: 'openrouter',
         apiKey: 'test-key',
-        baseUrl: 'https://custom.openrouter.ai/api/v1'
+        baseUrl: 'https://custom.openrouter.ai/api/v1',
       });
       await client.generate('test prompt');
 
       expect(createOpenAIMock.factory).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseURL: 'https://custom.openrouter.ai/api/v1'
+          baseURL: 'https://custom.openrouter.ai/api/v1',
         })
       );
     });
@@ -232,7 +251,9 @@ describe('AIClient', () => {
 
     it.each(noEmbeddingProviders)('throws for %s embeddings', async (provider) => {
       const client = new AIClient({ provider, apiKey: 'test' });
-      await expect(client.embed('test')).rejects.toThrow(`Embedding generation is not supported for ${provider} provider`);
+      await expect(client.embed('test')).rejects.toThrow(
+        `Embedding generation is not supported for ${provider} provider`
+      );
     });
 
     it('uses OpenAI embedding model for openai provider', async () => {
@@ -273,7 +294,7 @@ describe('AIClient', () => {
 
       expect(createOpenAIMock.factory).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseURL: 'https://openrouter.ai/api/v1'
+          baseURL: 'https://openrouter.ai/api/v1',
         })
       );
       expect(createOpenAIMock.embeddingFn).toHaveBeenCalled();
@@ -286,7 +307,7 @@ describe('AIClient', () => {
       expect(createOpenAIMock.factory).toHaveBeenCalledWith(
         expect.objectContaining({
           apiKey: 'ollama',
-          baseURL: 'http://localhost:11434/v1'
+          baseURL: 'http://localhost:11434/v1',
         })
       );
       expect(createOpenAIMock.embeddingFn).toHaveBeenCalled();
@@ -298,7 +319,7 @@ describe('AIClient', () => {
 
       expect(embedManyMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          values: ['text1', 'text2']
+          values: ['text1', 'text2'],
         })
       );
       expect(result).toEqual([[0.1], [0.2]]);
@@ -327,9 +348,7 @@ describe('AIClient', () => {
       const client = new AIClient({ apiKey: 'test', temperature: 0.7 });
       await client.generate('test prompt');
 
-      expect(generateTextMock).toHaveBeenCalledWith(
-        expect.objectContaining({ temperature: 0.7 })
-      );
+      expect(generateTextMock).toHaveBeenCalledWith(expect.objectContaining({ temperature: 0.7 }));
     });
 
     it('passes maxTokens to generateText', async () => {
@@ -345,9 +364,7 @@ describe('AIClient', () => {
       const client = new AIClient({ apiKey: 'test', temperature: 0.7 });
       await client.generate('test prompt', { temperature: 0.9 });
 
-      expect(generateTextMock).toHaveBeenCalledWith(
-        expect.objectContaining({ temperature: 0.9 })
-      );
+      expect(generateTextMock).toHaveBeenCalledWith(expect.objectContaining({ temperature: 0.9 }));
     });
   });
 });

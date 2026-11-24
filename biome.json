@@ -59,6 +59,8 @@
       "!**/dist",
       "!**/build",
       "!**/release",
+      "!**/src-tauri/target",
+      "!**/src-tauri/gen",
       "!**/.turbo",
       "!**/*.min.js",
       "!**/package-lock.json"

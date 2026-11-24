@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcBus } from '../ipc-bus';
 import type { WorktreeProvisionOptions, WorktreeReleaseOptions } from '../types/worktree';
 import { WorktreeManagerFactory } from './WorktreeManagerFactory';
 
@@ -7,7 +7,7 @@ import { WorktreeManagerFactory } from './WorktreeManagerFactory';
  * Must be called after WorktreeManagerFactory.configure().
  */
 export function registerWorktreeIpcHandlers(): void {
-  ipcMain.handle(
+  ipcBus.handle(
     'worktree:provision',
     async (_event, repoPath: string, branchName: string, options?: WorktreeProvisionOptions) => {
       try {
@@ -29,7 +29,7 @@ export function registerWorktreeIpcHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  ipcBus.handle(
     'worktree:release',
     async (_event, worktreeId: string, options?: WorktreeReleaseOptions) => {
       try {
@@ -44,7 +44,7 @@ export function registerWorktreeIpcHandlers(): void {
     }
   );
 
-  ipcMain.handle('worktree:get', async (_event, worktreeId: string) => {
+  ipcBus.handle('worktree:get', async (_event, worktreeId: string) => {
     try {
       const manager = await WorktreeManagerFactory.getManager();
       const worktree = await manager.get(worktreeId);
@@ -55,7 +55,7 @@ export function registerWorktreeIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('worktree:list', async (_event, repoPath?: string) => {
+  ipcBus.handle('worktree:list', async (_event, repoPath?: string) => {
     try {
       const manager = await WorktreeManagerFactory.getManager();
       const worktrees = await manager.list(repoPath);

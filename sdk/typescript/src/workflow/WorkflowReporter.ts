@@ -34,7 +34,7 @@ export class WorkflowReporter {
       progress: normalized,
       result: options?.result,
       error: options?.error,
-      durationMs: options?.durationMs
+      durationMs: options?.durationMs,
     });
   }
 }

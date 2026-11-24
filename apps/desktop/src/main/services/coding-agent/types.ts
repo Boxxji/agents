@@ -77,11 +77,7 @@ export const DEFAULT_AGENT_CONFIG = {
 export type { SessionChange } from '@hanzo/agents-shared';
 
 // Import CodingAgentMessage and MessageType for use in interfaces below
-import type {
-  CodingAgentMessage,
-  JsonlFilterOptions,
-  MessageType,
-} from '@hanzo/agents-shared';
+import type { CodingAgentMessage, JsonlFilterOptions, MessageType } from '@hanzo/agents-shared';
 
 /**
  * Filter options for messages within a session

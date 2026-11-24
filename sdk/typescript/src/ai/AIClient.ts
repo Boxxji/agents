@@ -1,18 +1,12 @@
-import {
-  embed,
-  embedMany,
-  generateObject,
-  generateText,
-  streamText
-} from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { createMistral } from '@ai-sdk/mistral';
-import { createGroq } from '@ai-sdk/groq';
-import { createXai } from '@ai-sdk/xai';
-import { createDeepSeek } from '@ai-sdk/deepseek';
 import { createCohere } from '@ai-sdk/cohere';
+import { createDeepSeek } from '@ai-sdk/deepseek';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGroq } from '@ai-sdk/groq';
+import { createMistral } from '@ai-sdk/mistral';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createXai } from '@ai-sdk/xai';
+import { embed, embedMany, generateObject, generateText, streamText } from 'ai';
 import type { z } from 'zod';
 import type { AIConfig } from '../types/agent.js';
 import { StatelessRateLimiter } from './RateLimiter.js';
@@ -104,11 +98,14 @@ export class AIClient {
       rateLimitJitterFactor: 0.25,
       rateLimitCircuitBreakerThreshold: 10,
       rateLimitCircuitBreakerTimeout: 300,
-      ...config
+      ...config,
     };
   }
 
-  async generate<T>(prompt: string, options: AIRequestOptions & { schema: ZodSchema<T> }): Promise<T>;
+  async generate<T>(
+    prompt: string,
+    options: AIRequestOptions & { schema: ZodSchema<T> }
+  ): Promise<T>;
   async generate(prompt: string, options?: AIRequestOptions): Promise<string>;
   async generate<T = any>(prompt: string, options: AIRequestOptions = {}): Promise<T | string> {
     const model = this.buildModel(options);
@@ -126,7 +123,7 @@ export class AIClient {
           temperature: options.temperature ?? this.config.temperature,
           maxOutputTokens: options.maxTokens ?? this.config.maxTokens,
           schema,
-          experimental_repairText: async ({ text }) => repairJsonText(text)
+          experimental_repairText: async ({ text }) => repairJsonText(text),
         } as Parameters<typeof generateObject>[0]);
 
       const response = await this.withRateLimitRetry(call);
@@ -139,11 +136,11 @@ export class AIClient {
         prompt,
         system: options.system,
         temperature: options.temperature ?? this.config.temperature,
-        maxOutputTokens: options.maxTokens ?? this.config.maxTokens
+        maxOutputTokens: options.maxTokens ?? this.config.maxTokens,
       });
 
     const response = await this.withRateLimitRetry(call);
-    return (response).text as string;
+    return response.text as string;
   }
 
   async stream(prompt: string, options: AIRequestOptions = {}): Promise<AIStream> {
@@ -153,7 +150,7 @@ export class AIClient {
       prompt,
       system: options.system,
       temperature: options.temperature ?? this.config.temperature,
-      maxOutputTokens: options.maxTokens ?? this.config.maxTokens
+      maxOutputTokens: options.maxTokens ?? this.config.maxTokens,
     });
 
     return streamResult.textStream;
@@ -164,10 +161,10 @@ export class AIClient {
     const result = await this.withRateLimitRetry(() =>
       embed({
         model: model,
-        value
+        value,
       })
     );
-    return (result).embedding as number[];
+    return result.embedding as number[];
   }
 
   async embedMany(values: string[], options: AIEmbeddingOptions = {}) {
@@ -175,10 +172,10 @@ export class AIClient {
     const result = await this.withRateLimitRetry(() =>
       embedMany({
         model: model,
-        values
+        values,
       })
     );
-    return (result).embeddings as number[][];
+    return result.embeddings as number[][];
   }
 
   private buildModel(options: AIRequestOptions) {
@@ -190,7 +187,7 @@ export class AIClient {
       case 'anthropic': {
         const anthropic = createAnthropic({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return anthropic(modelName);
       }
@@ -198,7 +195,7 @@ export class AIClient {
       case 'google': {
         const google = createGoogleGenerativeAI({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return google(modelName);
       }
@@ -206,7 +203,7 @@ export class AIClient {
       case 'mistral': {
         const mistral = createMistral({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return mistral(modelName);
       }
@@ -214,7 +211,7 @@ export class AIClient {
       case 'groq': {
         const groq = createGroq({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return groq(modelName);
       }
@@ -222,7 +219,7 @@ export class AIClient {
       case 'xai': {
         const xai = createXai({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return xai(modelName);
       }
@@ -230,7 +227,7 @@ export class AIClient {
       case 'deepseek': {
         const deepseek = createDeepSeek({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return deepseek(modelName);
       }
@@ -238,7 +235,7 @@ export class AIClient {
       case 'cohere': {
         const cohere = createCohere({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return cohere(modelName);
       }
@@ -247,7 +244,7 @@ export class AIClient {
         // OpenRouter is OpenAI-compatible
         const openrouter = createOpenAI({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl ?? 'https://openrouter.ai/api/v1'
+          baseURL: this.config.baseUrl ?? 'https://openrouter.ai/api/v1',
         });
         return openrouter(modelName);
       }
@@ -256,7 +253,7 @@ export class AIClient {
         // Ollama is OpenAI-compatible
         const ollama = createOpenAI({
           apiKey: this.config.apiKey ?? 'ollama', // Ollama doesn't need real key
-          baseURL: this.config.baseUrl ?? 'http://localhost:11434/v1'
+          baseURL: this.config.baseUrl ?? 'http://localhost:11434/v1',
         });
         return ollama(modelName);
       }
@@ -266,7 +263,7 @@ export class AIClient {
       default: {
         const openai = createOpenAI({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl ?? defaultBaseUrl(provider)
+          baseURL: this.config.baseUrl ?? defaultBaseUrl(provider),
         });
         return openai(modelName);
       }
@@ -287,7 +284,7 @@ export class AIClient {
       case 'google': {
         const google = createGoogleGenerativeAI({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return google.textEmbeddingModel(modelName);
       }
@@ -295,7 +292,7 @@ export class AIClient {
       case 'mistral': {
         const mistral = createMistral({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return mistral.textEmbeddingModel(modelName);
       }
@@ -303,7 +300,7 @@ export class AIClient {
       case 'cohere': {
         const cohere = createCohere({
           apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl
+          baseURL: this.config.baseUrl,
         });
         return cohere.textEmbeddingModel(modelName);
       }
@@ -315,7 +312,7 @@ export class AIClient {
       default: {
         const openai = createOpenAI({
           apiKey: this.config.apiKey ?? (provider === 'ollama' ? 'ollama' : undefined),
-          baseURL: this.config.baseUrl ?? defaultBaseUrl(provider)
+          baseURL: this.config.baseUrl ?? defaultBaseUrl(provider),
         });
         return openai.embedding(modelName);
       }
@@ -330,7 +327,7 @@ export class AIClient {
         maxDelay: this.config.rateLimitMaxDelay,
         jitterFactor: this.config.rateLimitJitterFactor,
         circuitBreakerThreshold: this.config.rateLimitCircuitBreakerThreshold,
-        circuitBreakerTimeout: this.config.rateLimitCircuitBreakerTimeout
+        circuitBreakerTimeout: this.config.rateLimitCircuitBreakerTimeout,
       });
     }
     return this.rateLimiter;

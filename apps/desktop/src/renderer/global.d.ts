@@ -5,20 +5,20 @@
  */
 
 import type {
-  ElectronAPI,
-  WorktreeAPI,
+  RecentWorkspacesAPI,
+  SessionWatcherAPI,
+  TerminalSessionAPI,
+} from '@hanzo/agents-shared';
+import type {
   AgentStatusAPI,
+  ElectronAPI,
+  GitAPI,
   LLMAPI,
   RepresentationAPI,
-  GitAPI,
-  ShellAPI,
   SessionSummaryCacheAPI,
+  ShellAPI,
+  WorktreeAPI,
 } from '../main/preload';
-import type {
-  TerminalSessionAPI,
-  SessionWatcherAPI,
-  RecentWorkspacesAPI,
-} from '@hanzo/agents-shared';
 import type { CodingAgentAPI } from '../main/services/coding-agent';
 
 // SVG module declarations moved to vite-env.d.ts

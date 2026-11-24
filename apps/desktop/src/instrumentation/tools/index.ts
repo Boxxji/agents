@@ -54,26 +54,26 @@ export const allTools: Tool[] = [
 ];
 
 export {
+  // Canvas
+  canvasAddNodeTool,
+  canvasConnectTool,
+  canvasQueryTool,
+  canvasRemoveNodeTool,
+  exposeCallTool,
+  exposeGetTool,
+  // Expose (automation)
+  exposeListTool,
+  exposeSetTool,
+  logClearTool,
   // Logging
   logInjectTool,
   logReadTool,
-  logClearTool,
-  // UI
-  uiScreenshotTool,
-  uiClickTool,
-  uiTypeTool,
-  uiQueryTool,
   // State
   stateGetTool,
   stateSetTool,
-  // Canvas
-  canvasAddNodeTool,
-  canvasRemoveNodeTool,
-  canvasConnectTool,
-  canvasQueryTool,
-  // Expose (automation)
-  exposeListTool,
-  exposeGetTool,
-  exposeSetTool,
-  exposeCallTool,
+  uiClickTool,
+  uiQueryTool,
+  // UI
+  uiScreenshotTool,
+  uiTypeTool,
 };

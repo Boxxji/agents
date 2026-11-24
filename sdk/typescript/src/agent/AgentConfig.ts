@@ -1,1 +1,7 @@
-export type { AgentConfig, AIConfig, MemoryConfig, MCPConfig, MCPServerConfig } from '../types/agent.js';
+export type {
+  AgentConfig,
+  AIConfig,
+  MCPConfig,
+  MCPServerConfig,
+  MemoryConfig,
+} from '../types/agent.js';

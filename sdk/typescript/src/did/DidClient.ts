@@ -115,12 +115,15 @@ export class DidClient {
   private readonly http: AxiosInstance;
   private readonly defaultHeaders: Record<string, string>;
 
-  constructor(baseUrl: string, defaultHeaders?: Record<string, string | number | boolean | undefined>) {
+  constructor(
+    baseUrl: string,
+    defaultHeaders?: Record<string, string | number | boolean | undefined>
+  ) {
     this.http = axios.create({
       baseURL: baseUrl.replace(/\/$/, ''),
       timeout: 30000,
       httpAgent,
-      httpsAgent
+      httpsAgent,
     });
     this.defaultHeaders = this.sanitizeHeaders(defaultHeaders ?? {});
   }
@@ -133,25 +136,25 @@ export class DidClient {
     const payload = {
       agent_node_id: request.agentNodeId,
       reasoners: request.reasoners,
-      skills: request.skills
+      skills: request.skills,
     };
 
     const res = await this.http.post('/v1/did/register', payload, {
-      headers: this.mergeHeaders()
+      headers: this.mergeHeaders(),
     });
 
     const data = res.data ?? {};
     if (!data.success) {
       return {
         success: false,
-        error: data.error ?? 'DID registration failed'
+        error: data.error ?? 'DID registration failed',
       };
     }
 
     return {
       success: true,
       identityPackage: this.parseIdentityPackage(data.identity_package),
-      message: data.message
+      message: data.message,
     };
   }
 
@@ -162,7 +165,7 @@ export class DidClient {
       publicKeyJwk: data?.public_key_jwk ?? '',
       derivationPath: data?.derivation_path ?? '',
       componentType: data?.component_type ?? '',
-      functionName: data?.function_name
+      functionName: data?.function_name,
     });
 
     const reasonerDids: Record<string, DIDIdentity> = {};
@@ -183,7 +186,7 @@ export class DidClient {
       agentDid: parseIdentity(pkg?.agent_did),
       reasonerDids,
       skillDids,
-      hanzoAgentsServerId: pkg?.hanzo_agents_server_id ?? ''
+      hanzoAgentsServerId: pkg?.hanzo_agents_server_id ?? '',
     };
   }
 
@@ -192,7 +195,7 @@ export class DidClient {
     const timestamp =
       ctx.timestamp instanceof Date
         ? ctx.timestamp.toISOString()
-        : ctx.timestamp ?? new Date().toISOString();
+        : (ctx.timestamp ?? new Date().toISOString());
 
     const payload = {
       execution_context: {
@@ -202,17 +205,17 @@ export class DidClient {
         caller_did: ctx.callerDid,
         target_did: ctx.targetDid,
         agent_node_did: ctx.agentNodeDid,
-        timestamp
+        timestamp,
       },
       input_data: this.serializeDataForJson(params.inputData),
       output_data: this.serializeDataForJson(params.outputData),
       status: params.status ?? 'succeeded',
       error_message: params.errorMessage,
-      duration_ms: params.durationMs ?? 0
+      duration_ms: params.durationMs ?? 0,
     };
 
     const res = await this.http.post('/v1/execution/vc', payload, {
-      headers: this.mergeHeaders(params.headers)
+      headers: this.mergeHeaders(params.headers),
     });
 
     return this.mapExecutionCredential(res.data);
@@ -221,7 +224,7 @@ export class DidClient {
   async exportAuditTrail(filters: AuditTrailFilters = {}): Promise<AuditTrailExport> {
     const res = await this.http.get('/v1/did/export/vcs', {
       params: this.cleanFilters(filters),
-      headers: this.mergeHeaders()
+      headers: this.mergeHeaders(),
     });
 
     const data = res.data ?? {};
@@ -236,7 +239,7 @@ export class DidClient {
         targetDid: vc.target_did,
         callerDid: vc.caller_did,
         status: vc.status,
-        createdAt: vc.created_at
+        createdAt: vc.created_at,
       })),
       workflowVcs: (data.workflow_vcs ?? []).map((vc: any) => ({
         workflowId: vc.workflow_id,
@@ -247,10 +250,10 @@ export class DidClient {
         startTime: vc.start_time,
         endTime: vc.end_time,
         totalSteps: vc.total_steps ?? 0,
-        completedSteps: vc.completed_steps ?? 0
+        completedSteps: vc.completed_steps ?? 0,
       })),
       totalCount: data.total_count ?? 0,
-      filtersApplied: data.filters_applied
+      filtersApplied: data.filters_applied,
     };
   }
 
@@ -287,7 +290,7 @@ export class DidClient {
       inputHash: data?.input_hash,
       outputHash: data?.output_hash,
       status: data?.status ?? '',
-      createdAt: data?.created_at ?? ''
+      createdAt: data?.created_at ?? '',
     };
   }
 
@@ -304,7 +307,7 @@ export class DidClient {
   private mergeHeaders(headers?: Record<string, any>) {
     return {
       ...this.defaultHeaders,
-      ...this.sanitizeHeaders(headers ?? {})
+      ...this.sanitizeHeaders(headers ?? {}),
     };
   }
 

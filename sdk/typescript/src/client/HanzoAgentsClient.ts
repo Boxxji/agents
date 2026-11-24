@@ -1,12 +1,12 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import type {
   AgentConfig,
-  DiscoveryOptions,
-  DiscoveryFormat,
-  DiscoveryResult,
-  DiscoveryResponse,
   CompactDiscoveryResponse,
-  HealthStatus
+  DiscoveryFormat,
+  DiscoveryOptions,
+  DiscoveryResponse,
+  DiscoveryResult,
+  HealthStatus,
 } from '../types/agent.js';
 import { httpAgent, httpsAgent } from '../utils/httpAgents.js';
 
@@ -25,11 +25,11 @@ export class HanzoAgentsClient {
 
   constructor(config: AgentConfig) {
     const baseURL = (config.controlPlaneUrl ?? 'http://localhost:8080').replace(/\/$/, '');
-this.http = axios.create({
+    this.http = axios.create({
       baseURL,
       timeout: 30000,
       httpAgent,
-      httpsAgent
+      httpsAgent,
     });
     this.config = config;
 
@@ -44,13 +44,15 @@ this.http = axios.create({
     await this.http.post('/v1/nodes/register', payload, { headers: this.mergeHeaders() });
   }
 
-  async heartbeat(status: 'starting' | 'ready' | 'degraded' | 'offline' = 'ready'): Promise<HealthStatus> {
+  async heartbeat(
+    status: 'starting' | 'ready' | 'degraded' | 'offline' = 'ready'
+  ): Promise<HealthStatus> {
     const nodeId = this.config.nodeId;
     const res = await this.http.post(
       `/v1/nodes/${nodeId}/heartbeat`,
       {
         status,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       },
       { headers: this.mergeHeaders() }
     );
@@ -86,7 +88,7 @@ this.http = axios.create({
     const res = await this.http.post(
       `/v1/execute/${target}`,
       {
-        input
+        input,
       },
       { headers: this.mergeHeaders(headers) }
     );
@@ -120,13 +122,13 @@ this.http = axios.create({
       input_data: event.inputData ?? {},
       result: event.result,
       error: event.error,
-      duration_ms: event.durationMs
+      duration_ms: event.durationMs,
     };
 
     const request = this.http
       .post('/v1/workflow/executions/events', payload, {
         headers: this.mergeHeaders(),
-        timeout: this.config.devMode ? 1000 : undefined
+        timeout: this.config.devMode ? 1000 : undefined,
       })
       .catch(() => {
         // Best-effort; avoid throwing to keep agent execution resilient
@@ -146,10 +148,12 @@ this.http = axios.create({
       result: update.result,
       error: update.error,
       duration_ms: update.durationMs,
-      progress: update.progress !== undefined ? Math.round(update.progress) : undefined
+      progress: update.progress !== undefined ? Math.round(update.progress) : undefined,
     };
 
-    await this.http.post(`/v1/executions/${executionId}/status`, payload, { headers: this.mergeHeaders() });
+    await this.http.post(`/v1/executions/${executionId}/status`, payload, {
+      headers: this.mergeHeaders(),
+    });
   }
 
   async discoverCapabilities(options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
@@ -162,7 +166,7 @@ this.http = axios.create({
       ...(options.agent ? [options.agent] : []),
       ...(options.nodeId ? [options.nodeId] : []),
       ...(options.agentIds ?? []),
-      ...(options.nodeIds ?? [])
+      ...(options.nodeIds ?? []),
     ]);
 
     if (combinedAgents.length === 1) {
@@ -195,10 +199,10 @@ this.http = axios.create({
       params,
       headers: this.mergeHeaders({
         ...(options.headers ?? {}),
-        Accept: format === 'xml' ? 'application/xml' : 'application/json'
+        Accept: format === 'xml' ? 'application/xml' : 'application/json',
       }),
       responseType: format === 'xml' ? 'text' : 'json',
-      transformResponse: (data) => data // preserve raw body for xml
+      transformResponse: (data) => data, // preserve raw body for xml
     });
 
     const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
@@ -211,14 +215,14 @@ this.http = axios.create({
       return {
         format: 'compact',
         raw,
-        compact: this.mapCompactDiscovery(parsed as any)
+        compact: this.mapCompactDiscovery(parsed as any),
       };
     }
 
     return {
       format: 'json',
       raw,
-      json: this.mapDiscoveryResponse(parsed as any)
+      json: this.mapDiscoveryResponse(parsed as any),
     };
   }
 
@@ -231,7 +235,7 @@ this.http = axios.create({
       pagination: {
         limit: Number(payload?.pagination?.limit ?? 0),
         offset: Number(payload?.pagination?.offset ?? 0),
-        hasMore: Boolean(payload?.pagination?.has_more)
+        hasMore: Boolean(payload?.pagination?.has_more),
       },
       capabilities: (payload?.capabilities ?? []).map((cap: any) => ({
         agentId: cap?.agent_id ?? '',
@@ -247,16 +251,16 @@ this.http = axios.create({
           inputSchema: r?.input_schema,
           outputSchema: r?.output_schema,
           examples: r?.examples,
-          invocationTarget: r?.invocation_target ?? ''
+          invocationTarget: r?.invocation_target ?? '',
         })),
         skills: (cap?.skills ?? []).map((s: any) => ({
           id: s?.id ?? '',
           description: s?.description,
           tags: s?.tags ?? [],
           inputSchema: s?.input_schema,
-          invocationTarget: s?.invocation_target ?? ''
-        }))
-      }))
+          invocationTarget: s?.invocation_target ?? '',
+        })),
+      })),
     };
   }
 
@@ -265,13 +269,13 @@ this.http = axios.create({
       id: cap?.id ?? '',
       agentId: cap?.agent_id ?? '',
       target: cap?.target ?? '',
-      tags: cap?.tags ?? []
+      tags: cap?.tags ?? [],
     });
 
     return {
       discoveredAt: String(payload?.discovered_at ?? ''),
       reasoners: (payload?.reasoners ?? []).map(toCap),
-      skills: (payload?.skills ?? []).map(toCap)
+      skills: (payload?.skills ?? []).map(toCap),
     };
   }
 
@@ -287,7 +291,7 @@ this.http = axios.create({
   private mergeHeaders(headers?: Record<string, any>): Record<string, string> {
     return {
       ...this.defaultHeaders,
-      ...this.sanitizeHeaders(headers ?? {})
+      ...this.sanitizeHeaders(headers ?? {}),
     };
   }
 
@@ -317,28 +321,35 @@ this.http = axios.create({
     return headers;
   }
 
-  sendNote(message: string, tags: string[], agentNodeId: string, metadata: {
-    runId?: string;
-    executionId?: string;
-    sessionId?: string;
-    actorId?: string;
-    workflowId?: string;
-    parentExecutionId?: string;
-    callerDid?: string;
-    targetDid?: string;
-    agentNodeDid?: string;
-  }, uiApiBaseUrl: string, devMode?: boolean): void {
+  sendNote(
+    message: string,
+    tags: string[],
+    agentNodeId: string,
+    metadata: {
+      runId?: string;
+      executionId?: string;
+      sessionId?: string;
+      actorId?: string;
+      workflowId?: string;
+      parentExecutionId?: string;
+      callerDid?: string;
+      targetDid?: string;
+      agentNodeDid?: string;
+    },
+    uiApiBaseUrl: string,
+    devMode?: boolean
+  ): void {
     const payload = {
       message,
       tags: tags ?? [],
       timestamp: Date.now() / 1000,
-      agent_node_id: agentNodeId
+      agent_node_id: agentNodeId,
     };
 
     const executionHeaders = this.buildExecutionHeaders({ ...metadata, agentNodeId });
     const headers = this.mergeHeaders({
       'content-type': 'application/json',
-      ...executionHeaders
+      ...executionHeaders,
     });
 
     const request = axios
@@ -346,7 +357,7 @@ this.http = axios.create({
         headers,
         timeout: devMode ? 5000 : 10000,
         httpAgent,
-        httpsAgent
+        httpsAgent,
       })
       .catch(() => {});
     void request;

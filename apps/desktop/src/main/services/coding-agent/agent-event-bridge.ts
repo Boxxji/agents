@@ -1,5 +1,5 @@
 import type { AgentActionResponse, AgentEvent } from '@hanzo/agents-shared';
-import { BrowserWindow, ipcMain } from 'electron';
+import { ipcBus } from '../../ipc-bus';
 
 interface PendingAction {
   resolve: (response: AgentActionResponse) => void;
@@ -16,9 +16,7 @@ export function emitAgentEvent(event: AgentEvent): void {
     sessionId: event.sessionId,
     id: (event as { id?: string }).id,
   });
-  for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send('coding-agent:event', event);
-  }
+  ipcBus.broadcast('coding-agent:event', event);
 }
 
 export function awaitAgentActionResponse(
@@ -48,19 +46,16 @@ export function awaitAgentActionResponse(
 }
 
 export function registerAgentActionHandlers(): void {
-  ipcMain.handle(
-    'coding-agent:respond-to-action',
-    async (_event, response: AgentActionResponse) => {
-      const pending = pendingActions.get(response.actionId);
-      if (!pending) {
-        return { success: false, error: 'No pending action for response' };
-      }
-
-      pending.abortHandler?.();
-
-      pendingActions.delete(response.actionId);
-      pending.resolve(response);
-      return { success: true };
+  ipcBus.handle('coding-agent:respond-to-action', async (_event, response: AgentActionResponse) => {
+    const pending = pendingActions.get(response.actionId);
+    if (!pending) {
+      return { success: false, error: 'No pending action for response' };
     }
-  );
+
+    pending.abortHandler?.();
+
+    pendingActions.delete(response.actionId);
+    pending.resolve(response);
+    return { success: true };
+  });
 }

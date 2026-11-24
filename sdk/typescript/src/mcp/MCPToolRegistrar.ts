@@ -1,7 +1,7 @@
 import type { Agent } from '../agent/Agent.js';
 import type { MCPServerConfig } from '../types/agent.js';
 import type { MCPTool, MCPToolRegistration } from '../types/mcp.js';
-import { MCPClientRegistry } from './MCPClientRegistry.js';
+import type { MCPClientRegistry } from './MCPClientRegistry.js';
 
 export interface MCPToolRegistrarOptions {
   namespace?: string;
@@ -50,19 +50,20 @@ export class MCPToolRegistrar {
         this.agent.skill(
           skillName,
           async (ctx) => {
-            const args = (ctx.input && typeof ctx.input === 'object') ? (ctx.input as Record<string, any>) : {};
+            const args =
+              ctx.input && typeof ctx.input === 'object' ? (ctx.input as Record<string, any>) : {};
             const result = await client.callTool(tool.name, args);
             return {
               status: 'success',
               result,
               server: client.alias,
-              tool: tool.name
+              tool: tool.name,
             };
           },
           {
             description: tool.description ?? `MCP tool ${tool.name} from ${client.alias}`,
             inputSchema: tool.inputSchema ?? tool.input_schema ?? {},
-            tags: this.buildTags(client.alias)
+            tags: this.buildTags(client.alias),
           }
         );
 
@@ -87,7 +88,10 @@ export class MCPToolRegistrar {
   }
 
   private sanitize(value: string) {
-    const collapsed = value.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    const collapsed = value
+      .replace(/[^a-zA-Z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
     if (/^[0-9]/.test(collapsed)) {
       return `mcp_${collapsed}`;
     }

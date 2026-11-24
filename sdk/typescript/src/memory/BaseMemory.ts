@@ -1,11 +1,11 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import type { MemoryScope } from '../types/agent.js';
 import { httpAgent, httpsAgent } from '../utils/httpAgents.js';
-import { resolveScope, type MemoryBackend } from './MemoryBackend.js';
+import { type MemoryBackend, resolveScope } from './MemoryBackend.js';
 import type {
   MemoryRequestOptions,
   VectorSearchOptions,
-  VectorSearchResult
+  VectorSearchResult,
 } from './MemoryClient.js';
 
 /**
@@ -25,7 +25,7 @@ export class BaseMemory implements MemoryBackend {
       httpsAgent,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       // Every status is taken, so `ask` can name an unrouted path's HTML answer.
-      validateStatus: () => true
+      validateStatus: () => true,
     });
     this.collection = collection;
   }
@@ -58,7 +58,7 @@ export class BaseMemory implements MemoryBackend {
       const answer = await this.ask('get', this.records, {
         perPage: 200,
         page,
-        filter: filterFor(scope, resolveScope({ ...options, scope }).scopeId)
+        filter: filterFor(scope, resolveScope({ ...options, scope }).scopeId),
       });
       const items = answer.items ?? [];
       keys.push(...items.map((item: any) => item.mkey).filter(Boolean));
@@ -70,7 +70,12 @@ export class BaseMemory implements MemoryBackend {
     return (await this.get(key, options)) !== undefined;
   }
 
-  async setVector(key: string, embedding: number[], metadata?: any, options: MemoryRequestOptions = {}) {
+  async setVector(
+    key: string,
+    embedding: number[],
+    metadata?: any,
+    options: MemoryRequestOptions = {}
+  ) {
     await this.write(options, key, { embedding, metadata: metadata ?? null });
   }
 
@@ -80,7 +85,7 @@ export class BaseMemory implements MemoryBackend {
     if (!record) return;
     await this.ask('patch', `${this.records}/${encodeURIComponent(record.id)}`, undefined, {
       embedding: null,
-      metadata: null
+      metadata: null,
     });
   }
 
@@ -101,7 +106,7 @@ export class BaseMemory implements MemoryBackend {
       const answer = await this.ask('get', this.records, {
         perPage: 200,
         page,
-        filter: filterFor(scope, id)
+        filter: filterFor(scope, id),
       });
       const items = answer.items ?? [];
       if (!items.length) break;
@@ -115,7 +120,7 @@ export class BaseMemory implements MemoryBackend {
           scope: item.scope,
           scopeId: item.scope_id,
           score: cosine(queryEmbedding, item.embedding),
-          metadata: item.metadata ?? undefined
+          metadata: item.metadata ?? undefined,
         });
       }
       if (items.length >= (answer.totalItems ?? 0)) break;
@@ -129,7 +134,7 @@ export class BaseMemory implements MemoryBackend {
   private async find(options: MemoryRequestOptions, key: string) {
     const answer = await this.ask('get', this.records, {
       perPage: 1,
-      filter: filterFor(...where(options), key)
+      filter: filterFor(...where(options), key),
     });
     return answer.items?.[0];
   }
@@ -145,18 +150,33 @@ export class BaseMemory implements MemoryBackend {
     const existing = await this.find(options, key);
 
     if (existing) {
-      await this.ask('patch', `${this.records}/${encodeURIComponent(existing.id)}`, undefined, fields);
+      await this.ask(
+        'patch',
+        `${this.records}/${encodeURIComponent(existing.id)}`,
+        undefined,
+        fields
+      );
       return;
     }
     try {
-      await this.ask('post', this.records, undefined, { scope, scope_id: id, mkey: key, ...fields });
+      await this.ask('post', this.records, undefined, {
+        scope,
+        scope_id: id,
+        mkey: key,
+        ...fields,
+      });
     } catch (err) {
       // Another writer created the key between the read and this create, and
       // the unique index refused a second record. A set means the last write
       // wins, so update the record that won.
       const winner = await this.find(options, key);
       if (!winner) throw err;
-      await this.ask('patch', `${this.records}/${encodeURIComponent(winner.id)}`, undefined, fields);
+      await this.ask(
+        'patch',
+        `${this.records}/${encodeURIComponent(winner.id)}`,
+        undefined,
+        fields
+      );
     }
   }
 

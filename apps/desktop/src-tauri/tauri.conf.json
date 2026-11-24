@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hanzo Agents",
+  "version": "../package.json",
+  "identifier": "ai.hanzo.agents",
+  "mainBinaryName": "hanzo-agents",
+  "build": {
+    "beforeDevCommand": "pnpm run build:main && pnpm run dev:vite",
+    "beforeBuildCommand": "pnpm run build && pnpm run build:main",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../src/renderer/dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    },
+    "windows": []
+  }
+}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 type AxiosMockInstance = { post: Mock; get: Mock };
 
@@ -7,7 +7,7 @@ const { createMock, createdInstances } = vi.hoisted(() => {
   const mock: Mock = vi.fn(() => {
     const instance: AxiosMockInstance = {
       post: vi.fn(),
-      get: vi.fn()
+      get: vi.fn(),
     };
     instances.push(instance);
     return instance;
@@ -17,7 +17,7 @@ const { createMock, createdInstances } = vi.hoisted(() => {
 
 vi.mock('axios', () => ({
   default: { create: createMock },
-  create: createMock
+  create: createMock,
 }));
 
 import { HanzoAgentsClient } from '../src/client/HanzoAgentsClient.js';
@@ -33,7 +33,7 @@ describe('header forwarding', () => {
     const client = new HanzoAgentsClient({
       nodeId: 'node-1',
       controlPlaneUrl: 'http://example.com',
-      defaultHeaders: { Authorization: 'Bearer tenant-token' }
+      defaultHeaders: { Authorization: 'Bearer tenant-token' },
     });
     const axiosInstance = createdInstances.at(-1)!;
     axiosInstance.post.mockResolvedValue({ data: { result: { ok: true } } });
@@ -46,8 +46,8 @@ describe('header forwarding', () => {
       {
         headers: {
           Authorization: 'Bearer tenant-token',
-          'X-Run-ID': 'run-123'
-        }
+          'X-Run-ID': 'run-123',
+        },
       }
     );
   });
@@ -56,7 +56,7 @@ describe('header forwarding', () => {
     const client = new HanzoAgentsClient({
       nodeId: 'node-1',
       controlPlaneUrl: 'http://example.com',
-      defaultHeaders: { Authorization: 'Bearer tenant-token' }
+      defaultHeaders: { Authorization: 'Bearer tenant-token' },
     });
     const axiosInstance = createdInstances.at(-1)!;
     axiosInstance.get.mockResolvedValue({
@@ -66,8 +66,8 @@ describe('header forwarding', () => {
         total_reasoners: 0,
         total_skills: 0,
         pagination: { limit: 0, offset: 0, has_more: false },
-        capabilities: []
-      }
+        capabilities: [],
+      },
     });
 
     await client.discoverCapabilities({ headers: { 'X-Tenant-ID': 'tenant-a' } });
@@ -77,16 +77,16 @@ describe('header forwarding', () => {
       headers: {
         Authorization: 'Bearer tenant-token',
         'X-Tenant-ID': 'tenant-a',
-        Accept: 'application/json'
+        Accept: 'application/json',
       },
       responseType: 'json',
-      transformResponse: expect.any(Function)
+      transformResponse: expect.any(Function),
     });
   });
 
   it('includes default headers in memory requests', async () => {
     const memoryClient = new MemoryClient('http://example.com', {
-      Authorization: 'Bearer tenant-token'
+      Authorization: 'Bearer tenant-token',
     });
     const axiosInstance = createdInstances.at(-1)!;
     axiosInstance.post.mockResolvedValue({ data: {} });
@@ -99,8 +99,8 @@ describe('header forwarding', () => {
       {
         headers: {
           Authorization: 'Bearer tenant-token',
-          'X-Workflow-ID': 'wf-1'
-        }
+          'X-Workflow-ID': 'wf-1',
+        },
       }
     );
   });

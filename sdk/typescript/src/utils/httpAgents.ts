@@ -18,12 +18,12 @@ export const httpAgent = new http.Agent({
   keepAlive: true,
   maxSockets: 10,
   maxTotalSockets: 50,
-  maxFreeSockets: 5
+  maxFreeSockets: 5,
 });
 
 export const httpsAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 10,
   maxTotalSockets: 50,
-  maxFreeSockets: 5
+  maxFreeSockets: 5,
 });

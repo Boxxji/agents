@@ -1,7 +1,7 @@
-import axios, { AxiosInstance, isAxiosError } from 'axios';
+import axios, { type AxiosInstance, isAxiosError } from 'axios';
 import type { MemoryScope } from '../types/agent.js';
 import { httpAgent, httpsAgent } from '../utils/httpAgents.js';
-import { resolveScope, type MemoryBackend } from './MemoryBackend.js';
+import { type MemoryBackend, resolveScope } from './MemoryBackend.js';
 
 export interface MemoryRequestMetadata {
   workflowId?: string;
@@ -40,12 +40,15 @@ export class MemoryClient implements MemoryBackend {
   private readonly http: AxiosInstance;
   private readonly defaultHeaders: Record<string, string>;
 
-  constructor(baseUrl: string, defaultHeaders?: Record<string, string | number | boolean | undefined>) {
+  constructor(
+    baseUrl: string,
+    defaultHeaders?: Record<string, string | number | boolean | undefined>
+  ) {
     this.http = axios.create({
       baseURL: baseUrl.replace(/\/$/, ''),
       timeout: 30000,
       httpAgent,
-      httpsAgent
+      httpsAgent,
     });
     this.defaultHeaders = this.sanitizeHeaders(defaultHeaders ?? {});
   }
@@ -55,7 +58,7 @@ export class MemoryClient implements MemoryBackend {
     if (options.scope) payload.scope = options.scope;
 
     await this.http.post('/v1/memory/set', payload, {
-      headers: this.buildHeaders(options)
+      headers: this.buildHeaders(options),
     });
   }
 
@@ -65,7 +68,7 @@ export class MemoryClient implements MemoryBackend {
       if (options.scope) payload.scope = options.scope;
 
       const res = await this.http.post('/v1/memory/get', payload, {
-        headers: this.buildHeaders(options)
+        headers: this.buildHeaders(options),
       });
       return res.data?.data as T;
     } catch (err) {
@@ -81,14 +84,14 @@ export class MemoryClient implements MemoryBackend {
     if (options.scope) payload.scope = options.scope;
 
     await this.http.post('/v1/memory/delete', payload, {
-      headers: this.buildHeaders(options)
+      headers: this.buildHeaders(options),
     });
   }
 
   async listKeys(scope: MemoryScope, options: MemoryRequestOptions = {}) {
     const res = await this.http.get('/v1/memory/list', {
       params: { scope },
-      headers: this.buildHeaders({ ...options, scope })
+      headers: this.buildHeaders({ ...options, scope }),
     });
     return (res.data ?? []).map((item: any) => item?.key).filter(Boolean) as string[];
   }
@@ -98,36 +101,44 @@ export class MemoryClient implements MemoryBackend {
     return value !== undefined;
   }
 
-  async setVector(key: string, embedding: number[], metadata?: any, options: MemoryRequestOptions = {}) {
+  async setVector(
+    key: string,
+    embedding: number[],
+    metadata?: any,
+    options: MemoryRequestOptions = {}
+  ) {
     const payload: any = {
       key,
-      embedding
+      embedding,
     };
     if (metadata !== undefined) payload.metadata = metadata;
     if (options.scope) payload.scope = options.scope;
 
     await this.http.post('/v1/memory/vector', payload, {
-      headers: this.buildHeaders(options)
+      headers: this.buildHeaders(options),
     });
   }
 
   async deleteVector(key: string, options: MemoryRequestOptions = {}) {
     await this.http.delete(`/v1/memory/vector/${encodeURIComponent(key)}`, {
       params: options.scope ? { scope: options.scope } : undefined,
-      headers: this.buildHeaders(options)
+      headers: this.buildHeaders(options),
     });
   }
 
-  async searchVector(queryEmbedding: number[], options: VectorSearchOptions = {}): Promise<VectorSearchResult[]> {
+  async searchVector(
+    queryEmbedding: number[],
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchResult[]> {
     const payload: any = {
       query_embedding: queryEmbedding,
-      top_k: options.topK ?? 10
+      top_k: options.topK ?? 10,
     };
     if (options.filters) payload.filters = options.filters;
     if (options.scope) payload.scope = options.scope;
 
     const res = await this.http.post('/v1/memory/vector/search', payload, {
-      headers: this.buildHeaders(options)
+      headers: this.buildHeaders(options),
     });
     return res.data ?? [];
   }

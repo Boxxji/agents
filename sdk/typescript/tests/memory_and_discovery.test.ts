@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import axios from 'axios';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HanzoAgentsClient } from '../src/client/HanzoAgentsClient.js';
 import { MemoryClient } from '../src/memory/MemoryClient.js';
 import { MemoryInterface } from '../src/memory/MemoryInterface.js';
-import { HanzoAgentsClient } from '../src/client/HanzoAgentsClient.js';
 import { WorkflowReporter } from '../src/workflow/WorkflowReporter.js';
 
 vi.mock('axios', () => {
   const create = vi.fn(() => ({
     post: vi.fn(),
-    get: vi.fn()
+    get: vi.fn(),
   }));
 
   const isAxiosError = (err: any) => Boolean(err?.isAxiosError);
@@ -16,7 +16,7 @@ vi.mock('axios', () => {
   return {
     default: { create, isAxiosError },
     create,
-    isAxiosError
+    isAxiosError,
   };
 });
 
@@ -50,12 +50,12 @@ describe('MemoryClient vector operations', () => {
         key: 'chunk_1',
         embedding: [0.1, 0.2],
         metadata: { source: 'doc' },
-        scope: 'workflow'
+        scope: 'workflow',
       },
       expect.objectContaining({
         headers: expect.objectContaining({
-          'X-Workflow-ID': 'wf-123'
-        })
+          'X-Workflow-ID': 'wf-123',
+        }),
       })
     );
   });
@@ -71,7 +71,7 @@ describe('MemoryClient vector operations', () => {
       filters: { tag: 'a' },
       scope: 'session',
       scopeId: 's1',
-      metadata: { sessionId: 's1' }
+      metadata: { sessionId: 's1' },
     });
 
     expect(http.post).toHaveBeenCalledWith(
@@ -80,12 +80,12 @@ describe('MemoryClient vector operations', () => {
         query_embedding: [0.5, 0.2],
         top_k: 5,
         filters: { tag: 'a' },
-        scope: 'session'
+        scope: 'session',
       },
       expect.objectContaining({
         headers: expect.objectContaining({
-          'X-Session-ID': 's1'
-        })
+          'X-Session-ID': 's1',
+        }),
       })
     );
     expect(res).toEqual(results);
@@ -100,7 +100,7 @@ describe('MemoryClient vector operations', () => {
     await client.deleteVector('chunk_2', {
       scope: 'session',
       scopeId: 's1',
-      metadata: { sessionId: 's1' }
+      metadata: { sessionId: 's1' },
     });
 
     expect(del).toHaveBeenCalledWith(
@@ -108,8 +108,8 @@ describe('MemoryClient vector operations', () => {
       expect.objectContaining({
         params: { scope: 'session' },
         headers: expect.objectContaining({
-          'X-Session-ID': 's1'
-        })
+          'X-Session-ID': 's1',
+        }),
       })
     );
   });
@@ -127,8 +127,8 @@ describe('MemoryClient vector operations', () => {
       { key: 'foo', scope: 'session' },
       expect.objectContaining({
         headers: expect.objectContaining({
-          'X-Session-ID': 's1'
-        })
+          'X-Session-ID': 's1',
+        }),
       })
     );
   });
@@ -140,7 +140,7 @@ describe('MemoryClient vector operations', () => {
 
     const keys = await client.listKeys('workflow', {
       scopeId: 'wf-1',
-      metadata: { workflowId: 'wf-1' }
+      metadata: { workflowId: 'wf-1' },
     });
 
     expect(http.get).toHaveBeenCalledWith(
@@ -148,8 +148,8 @@ describe('MemoryClient vector operations', () => {
       expect.objectContaining({
         params: { scope: 'workflow' },
         headers: expect.objectContaining({
-          'X-Workflow-ID': 'wf-1'
-        })
+          'X-Workflow-ID': 'wf-1',
+        }),
       })
     );
     expect(keys).toEqual(['a', 'b']);
@@ -184,8 +184,8 @@ describe('HanzoAgentsClient discovery', () => {
               description: 'reasoner',
               input_schema: { type: 'object' },
               output_schema: { type: 'object' },
-              examples: [{ name: 'ex' }]
-            }
+              examples: [{ name: 'ex' }],
+            },
           ],
           skills: [
             {
@@ -193,11 +193,11 @@ describe('HanzoAgentsClient discovery', () => {
               invocation_target: 'agent-1:s1',
               tags: ['tag'],
               description: 'skill',
-              input_schema: { type: 'object' }
-            }
-          ]
-        }
-      ]
+              input_schema: { type: 'object' },
+            },
+          ],
+        },
+      ],
     };
 
     const client = new HanzoAgentsClient({ nodeId: 'tester' });
@@ -207,7 +207,7 @@ describe('HanzoAgentsClient discovery', () => {
     const result = await client.discoverCapabilities({
       agent: 'agent-1',
       includeInputSchema: true,
-      includeOutputSchema: true
+      includeOutputSchema: true,
     });
 
     expect(http.get).toHaveBeenCalledWith(
@@ -217,11 +217,11 @@ describe('HanzoAgentsClient discovery', () => {
           agent: 'agent-1',
           include_input_schema: 'true',
           include_output_schema: 'true',
-          format: 'json'
+          format: 'json',
         }),
         headers: expect.objectContaining({
-          Accept: 'application/json'
-        })
+          Accept: 'application/json',
+        }),
       })
     );
 
@@ -234,7 +234,7 @@ describe('HanzoAgentsClient discovery', () => {
 describe('WorkflowReporter', () => {
   it('forwards progress updates to HanzoAgentsClient', async () => {
     const client = {
-      updateExecutionStatus: vi.fn().mockResolvedValue({})
+      updateExecutionStatus: vi.fn().mockResolvedValue({}),
     } as unknown as HanzoAgentsClient;
 
     const reporter = new WorkflowReporter(client, { executionId: 'exec-1', runId: 'run-1' });
@@ -245,7 +245,7 @@ describe('WorkflowReporter', () => {
       progress: 42,
       result: { ok: true },
       error: undefined,
-      durationMs: undefined
+      durationMs: undefined,
     });
   });
 });
@@ -258,13 +258,13 @@ describe('MemoryInterface helpers', () => {
         calls.push(options.scope);
         if (options.scope === 'session') return 'session-value';
         return undefined;
-      })
+      }),
     } as any;
 
     const memory = new MemoryInterface({
       client: stubClient,
       defaultScope: 'workflow',
-      metadata: { workflowId: 'wf-1', sessionId: 's-1' }
+      metadata: { workflowId: 'wf-1', sessionId: 's-1' },
     });
 
     const result = await memory.get('k1');
@@ -277,7 +277,7 @@ describe('MemoryInterface helpers', () => {
     const memory = new MemoryInterface({
       client: { set } as any,
       defaultScope: 'workflow',
-      metadata: { workflowId: 'wf-1' }
+      metadata: { workflowId: 'wf-1' },
     });
 
     await memory.session('s1').set('k', 'v');
@@ -286,7 +286,7 @@ describe('MemoryInterface helpers', () => {
       'v',
       expect.objectContaining({
         scope: 'session',
-        scopeId: 's1'
+        scopeId: 's1',
       })
     );
   });

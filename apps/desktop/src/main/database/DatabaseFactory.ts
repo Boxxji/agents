@@ -4,7 +4,7 @@
  */
 
 import * as path from 'node:path';
-import { app } from 'electron';
+import { getUserDataPath } from '../paths';
 import type { IDatabase } from './IDatabase';
 import { SQLiteDatabase } from './SQLiteDatabase';
 
@@ -45,7 +45,7 @@ export class DatabaseFactory {
    * Stores in the user's app data directory
    */
   private static getDefaultDatabasePath(): string {
-    const userDataPath = app.getPath('userData');
+    const userDataPath = getUserDataPath();
     return path.join(userDataPath, 'canvas-state.db');
   }
 

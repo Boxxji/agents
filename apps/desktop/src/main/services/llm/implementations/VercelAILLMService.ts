@@ -217,7 +217,7 @@ export class VercelAILLMService implements IToolCapableLLMService {
     // Extract usage if available (SDK v5 uses different property names)
     let usage: ChatResponse['usage'] | undefined;
     if (result.usage) {
-      const u = result.usage as Record<string, number>;
+      const u = result.usage as unknown as Record<string, number>;
       const promptTokens = u.promptTokens ?? u.inputTokens ?? 0;
       const completionTokens = u.completionTokens ?? u.outputTokens ?? 0;
       usage = {
