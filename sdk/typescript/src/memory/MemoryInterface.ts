@@ -1,4 +1,5 @@
 import type { AIClient, AIEmbeddingOptions } from '../ai/AIClient.js';
+import { TieredMemory } from './TieredMemory.js';
 import { AtomicFactMemory, type FactDecisionModel } from './AtomicFactMemory.js';
 import type { MemoryScope } from '../types/agent.js';
 import type { MemoryBackend } from './MemoryBackend.js';
@@ -207,6 +208,21 @@ export class MemoryInterface {
       metadata: this.metadata,
       reviewConfidenceThreshold: options?.reviewConfidenceThreshold,
       semanticDuplicateThreshold: options?.semanticDuplicateThreshold,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  tiered(options?: {
+    episodicCompactionThreshold?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new TieredMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      episodicCompactionThreshold: options?.episodicCompactionThreshold,
       embeddingOptions: options?.embeddingOptions
     });
   }
