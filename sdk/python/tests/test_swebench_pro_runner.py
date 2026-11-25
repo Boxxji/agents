@@ -563,3 +563,185 @@ async def test_score_table_and_json_report_roundtrip() -> None:
     assert "| Agent | Profile |" in table
     assert "`oracle_patch`" in table
     assert "`redteam_test_editor`" in table
+
+
+# ---------------------------------------------------------------------------
+# 8. Review Hardening Regression Tests (PR #121)
+# ---------------------------------------------------------------------------
+
+
+class _AtexitStdoutSpooferAgent(CodingAgent):
+    """Patches source without fixing the bug, injecting an atexit hook that spoofs PASSED lines."""
+
+    name = "redteam_atexit_spoofer"
+
+    async def solve(
+        self,
+        task: SWEBenchTask,
+        workspace: Path,
+        env: Dict[str, str],
+        ai_config: AIConfig,
+    ) -> AgentInvocationResult:
+        from benchmarks.swebench_pro.runner import build_unified_diff
+
+        target_rel = task.expected_touched_files[0]
+        orig_src = task.base_files[target_rel]
+        fake_lines = [f"{nid} PASSED" for nid in (*task.fail_to_pass_tests, *task.pass_to_pass_tests)]
+        spoof_hook = (
+            "import atexit as _atexit\n"
+            f"_FAKE_LINES = {fake_lines!r}\n"
+            "@_atexit.register\n"
+            "def _spoof_passed():\n"
+            "    for _ln in _FAKE_LINES:\n"
+            "        print(_ln, flush=True)\n\n"
+        )
+        diff = build_unified_diff(task.base_files, {target_rel: spoof_hook + orig_src})
+        return AgentInvocationResult(patch_diff=diff, prompt_tokens=120, completion_tokens=80)
+
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_redteam_atexit_stdout_spoofing_cannot_fake_resolved() -> None:
+    """[P1] Patched module registering an atexit hook printing fake PASSED lines must stay unresolved."""
+    task = build_cleanroom_v2_subset()[0]
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        res = await runner.run_task(task, _AtexitStdoutSpooferAgent(), StorageProfile.VISOR_ISOLATED)
+
+    assert res.resolved is False
+    assert res.status == TaskStatus.UNRESOLVED
+    assert res.tampered is False
+    assert res.fail_to_pass_passed < res.fail_to_pass_total
+
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_visor_cas_protected_tests_survive_prior_rollout_chmod_and_edit() -> None:
+    """[P1] Prior rollout chmod+editing a protected test must NOT poison shared CAS or subsequent rollouts."""
+    task = build_cleanroom_v2_subset()[0]
+    protected_rel = task.protected_test_paths[0]
+    original_test_content = task.test_files[protected_rel]
+
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        # 1. Adversarial rollout chmods + overwrites protected test file in visor_isolated
+        tampered_res = await runner.run_task(
+            task, AdversarialTestEditorAgent(), StorageProfile.VISOR_ISOLATED
+        )
+        assert tampered_res.tampered is True
+        assert tampered_res.resolved is False
+
+        # 2. Verify a fresh visor_isolated sandbox provisioned from the SAME CAS cache is untampered
+        sb_fresh = runner.sandbox_manager.provision(
+            task, StorageProfile.VISOR_ISOLATED, scale=runner.scale
+        )
+        try:
+            assert sb_fresh.cas_cache_hit is True
+            fresh_test = sb_fresh.workspace / protected_rel
+            assert fresh_test.read_text(encoding="utf-8") == original_test_content
+            # Detached private inode: link count must be 1 (not hardlinked to shared CAS)
+            assert fresh_test.stat().st_nlink == 1
+            # Still read-only inside workspace
+            assert (stat.S_IMODE(fresh_test.stat().st_mode) & stat.S_IWUSR) == 0
+        finally:
+            sb_fresh.cleanup()
+
+        # 3. NoOp rollout must still fail F2P (tests were NOT weakened by prior rollout)
+        noop_res = await runner.run_task(task, NoOpBaselineAgent(), StorageProfile.VISOR_ISOLATED)
+        assert noop_res.resolved is False
+        assert noop_res.tampered is False
+        assert noop_res.fail_to_pass_passed < noop_res.fail_to_pass_total
+
+        # 4. Oracle rollout still resolves cleanly
+        oracle_res = await runner.run_task(task, OraclePatchAgent(), StorageProfile.VISOR_ISOLATED)
+        assert oracle_res.resolved is True
+        assert oracle_res.integrity.clean is True
+
+
+@pytest.mark.unit
+def test_visor_isolated_preserves_dotfiles_identically_to_plain_nvme() -> None:
+    """Dotfiles like .config/runtime.txt and .env.example must keep leading dots on visor_isolated."""
+    from copy import deepcopy
+
+    base_task = deepcopy(build_cleanroom_v2_subset()[0])
+    base_task.instance_id = base_task.instance_id + "__dotfiles"
+    base_task.base_files[".config/runtime.txt"] = "python-3.12\n"
+    base_task.base_files[".env.example"] = "MODE=benchmark\n"
+
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        sb_nvme = runner.sandbox_manager.provision(
+            base_task, StorageProfile.PLAIN_NVME, scale=runner.scale
+        )
+        sb_visor = runner.sandbox_manager.provision(
+            base_task, StorageProfile.VISOR_ISOLATED, scale=runner.scale
+        )
+        try:
+            for rel in (".config/runtime.txt", ".env.example"):
+                nvme_p = sb_nvme.workspace / rel
+                visor_p = sb_visor.workspace / rel
+                assert nvme_p.is_file()
+                assert visor_p.is_file()
+                assert visor_p.read_text(encoding="utf-8") == nvme_p.read_text(encoding="utf-8")
+            assert not (sb_visor.workspace / "config/runtime.txt").exists()
+            assert not (sb_visor.workspace / "env.example").exists()
+        finally:
+            sb_nvme.cleanup()
+            sb_visor.cleanup()
+
+
+@pytest.mark.unit
+def test_manifest_digest_changes_when_any_task_content_changes() -> None:
+    """Manifest fingerprint must hash source files, tests, reference patches, test lists, and revision."""
+    from copy import deepcopy
+    from benchmarks.swebench_pro.subset import compute_manifest_digest
+
+    tasks = build_cleanroom_v2_subset()[:2]
+    baseline = compute_manifest_digest(tasks, seed=42)
+
+    # 1. Mutate a base source file
+    t_src = deepcopy(tasks)
+    first_src = next(iter(t_src[0].base_files))
+    t_src[0].base_files[first_src] += "\n# edited\n"
+    assert compute_manifest_digest(t_src, seed=42) != baseline
+
+    # 2. Mutate an evaluation test file
+    t_test = deepcopy(tasks)
+    first_test = next(iter(t_test[0].test_files))
+    t_test[0].test_files[first_test] += "\n# edited test\n"
+    assert compute_manifest_digest(t_test, seed=42) != baseline
+
+    # 3. Mutate a reference gold patch file
+    t_gold = deepcopy(tasks)
+    first_gold = next(iter(t_gold[0].gold_patch_files))
+    t_gold[0].gold_patch_files[first_gold] += "\n# edited gold\n"
+    assert compute_manifest_digest(t_gold, seed=42) != baseline
+
+    # 4. Mutate fail_to_pass_tests list
+    t_f2p = deepcopy(tasks)
+    t_f2p[0].fail_to_pass_tests.append("tests/test_extra.py::test_new")
+    assert compute_manifest_digest(t_f2p, seed=42) != baseline
+
+    # 5. Mutate task revision
+    t_rev = deepcopy(tasks)
+    t_rev[0].revision = "oct-2026"
+    assert compute_manifest_digest(t_rev, seed=42) != baseline
+
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_rejected_patch_and_leakage_blocked_finalize_wall_time_and_io_telemetry() -> None:
+    """All terminal outcomes (including rejected patches and leakage blocks) must finalize profiler telemetry."""
+    task = build_cleanroom_v2_subset()[0]
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        rejected = await runner.run_task(task, _MalformedDiffAgent(), StorageProfile.PLAIN_NVME)
+        blocked = await runner.run_task(
+            task, OraclePatchAgent(), StorageProfile.PLAIN_NVME, skip_scrub=True
+        )
+
+    for res in (rejected, blocked):
+        assert res.wall_time_ms > 0.0
+        if read_proc_self_io() is not None:
+            assert res.io.proc_io_available is True
+            assert res.io.rchar_bytes > 0
+            assert res.io.wchar_bytes > 0
+            assert res.io.syscr_ops > 0
+            assert res.io.syscw_ops > 0
+

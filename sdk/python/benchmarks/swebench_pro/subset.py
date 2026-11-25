@@ -39,11 +39,42 @@ SWE_BENCH_PRO_V2_LANGUAGE_COUNTS: Dict[str, int] = {
 
 
 def compute_manifest_digest(tasks: Sequence[SWEBenchTask], seed: int = 42) -> str:
-    """Compute a deterministic SHA-256 content digest for a task subset."""
+    """Compute a deterministic SHA-256 content digest over all task metadata and contents."""
     h = hashlib.sha256()
-    h.update(f"rev={SWE_BENCH_PRO_V2_REVISION};ver={SWE_BENCH_PRO_V2_VERSION};seed={seed}\n".encode("utf-8"))
+    header = {
+        "benchmark_revision": SWE_BENCH_PRO_V2_REVISION,
+        "benchmark_version": SWE_BENCH_PRO_V2_VERSION,
+        "seed": seed,
+    }
+    h.update(json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    h.update(b"\n")
     for task in tasks:
-        h.update(f"{task.instance_id}|{task.repo}|{task.difficulty}|{task.language}\n".encode("utf-8"))
+        canonical_task = {
+            "instance_id": task.instance_id,
+            "repo": task.repo,
+            "language": task.language,
+            "difficulty": task.difficulty,
+            "revision": task.revision,
+            "benchmark_version": task.benchmark_version,
+            "problem_statement": task.problem_statement,
+            "gold_marker": task.gold_marker,
+            "base_files": sorted(task.base_files.items()),
+            "test_files": sorted(task.test_files.items()),
+            "gold_patch_files": sorted(task.gold_patch_files.items()),
+            "partial_patch_files": (
+                sorted(task.partial_patch_files.items())
+                if task.partial_patch_files is not None
+                else None
+            ),
+            "fail_to_pass_tests": list(task.fail_to_pass_tests),
+            "pass_to_pass_tests": list(task.pass_to_pass_tests),
+            "protected_test_paths": list(task.protected_test_paths),
+            "expected_touched_files": list(task.expected_touched_files),
+        }
+        h.update(
+            json.dumps(canonical_task, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        h.update(b"\n")
     return h.hexdigest()
 
 

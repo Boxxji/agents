@@ -16,11 +16,12 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
-import re
 import stat
 import subprocess
 import sys
+import tempfile
 import time
+import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -50,8 +51,6 @@ from .subset import (
     build_cleanroom_v2_subset,
     select_subset,
 )
-
-_PYTEST_RESULT_RE = re.compile(r"^(tests/\S+::\S+)\s+(PASSED|FAILED|ERROR|SKIPPED)\b")
 
 
 def build_unified_diff(
@@ -385,55 +384,112 @@ def _apply_patch_in_workspace(workspace: Path, patch_diff: str) -> Tuple[bool, s
     return True, ""
 
 
+def _junit_testcase_nodeid(tc: ET.Element) -> Optional[str]:
+    """Reconstruct canonical pytest nodeid (`path/to/test.py::[Class::]test_fn`) from JUnit XML."""
+    name = tc.attrib.get("name", "").strip()
+    if not name:
+        return None
+    file_attr = tc.attrib.get("file", "").strip().replace("\\", "/")
+    classname = tc.attrib.get("classname", "").strip()
+
+    if file_attr:
+        mod_prefix = file_attr[:-3].replace("/", ".") if file_attr.endswith(".py") else file_attr.replace("/", ".")
+        if classname and classname.startswith(mod_prefix + "."):
+            class_suffix = classname[len(mod_prefix) + 1 :]
+            return f"{file_attr}::{class_suffix.replace('.', '::')}::{name}"
+        return f"{file_attr}::{name}"
+
+    # Fallback when file attribute is absent: derive module path from dotted classname
+    if classname:
+        parts = classname.split(".")
+        file_guess = "/".join(parts) + ".py"
+        return f"{file_guess}::{name}"
+    return None
+
+
+def _parse_junit_xml(junit_path: Path) -> Dict[str, bool]:
+    """Parse evaluator-owned JUnit XML strictly; True iff testcase has zero failure/error/skipped."""
+    if not junit_path.is_file():
+        return {}
+    try:
+        tree = ET.parse(junit_path)
+    except (ET.ParseError, OSError):
+        return {}
+
+    outcomes: Dict[str, bool] = {}
+    root = tree.getroot()
+    for tc in root.iter("testcase"):
+        nodeid = _junit_testcase_nodeid(tc)
+        if not nodeid:
+            continue
+        has_non_pass = (
+            tc.find("failure") is not None
+            or tc.find("error") is not None
+            or tc.find("skipped") is not None
+        )
+        passed = not has_non_pass
+        # Fail closed on duplicate testcase entries: any non-pass taints the nodeid
+        if nodeid in outcomes:
+            outcomes[nodeid] = outcomes[nodeid] and passed
+        else:
+            outcomes[nodeid] = passed
+    return outcomes
+
+
 def _run_pytest_grading(
     workspace: Path,
     task: SWEBenchTask,
     timeout_s: float = 30.0,
-) -> Tuple[int, int, str, bool]:
-    """Execute real pytest inside sanitized workspace and score F2P / P2P tests.
+) -> Tuple[int, int, str, bool, int]:
+    """Execute real pytest inside sanitized workspace and score F2P / P2P strictly via JUnit XML.
 
-    Returns ``(f2p_passed, p2p_passed, output_tail, timed_out)``.
+    Writes ``--junitxml`` to an evaluator-owned temporary directory outside the workspace
+    and never trusts arbitrary stdout/stderr ``PASSED`` lines (preventing ``atexit`` spoofing).
+
+    Returns ``(f2p_passed, p2p_passed, output_tail, timed_out, exit_code)``.
     """
     test_env = sanitize_execution_env()
     # Trusted evaluator explicitly pins PYTHONPATH to the verified workspace root only.
     test_env["PYTHONPATH"] = str(workspace)
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "-v",
-        "--tb=short",
-        "--no-header",
-        "-o",
-        "addopts=",
-        "-c",
-        "/dev/null",
-        *task.protected_test_paths,
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(workspace),
-            env=test_env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired as exc:
-        tail = (exc.stdout or "")[-600:] if isinstance(exc.stdout, str) else ""
-        return 0, 0, f"TIMEOUT after {timeout_s}s\n{tail}", True
 
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    outcomes: Dict[str, str] = {}
-    for line in combined.splitlines():
-        m = _PYTEST_RESULT_RE.match(line.strip())
-        if m:
-            outcomes[m.group(1)] = m.group(2)
+    with tempfile.TemporaryDirectory(prefix="swebench_junit_") as junit_dir:
+        junit_path = Path(junit_dir) / "results.xml"
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"--rootdir={workspace}",
+            "-v",
+            "--tb=short",
+            "--no-header",
+            "-o",
+            "addopts=",
+            "-o",
+            "junit_family=legacy",
+            "-c",
+            "/dev/null",
+            f"--junitxml={junit_path}",
+            *task.protected_test_paths,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(workspace),
+                env=test_env,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            tail = (exc.stdout or "")[-600:] if isinstance(exc.stdout, str) else ""
+            return 0, 0, f"TIMEOUT after {timeout_s}s\n{tail}", True, -1
 
-    f2p_passed = sum(1 for t in task.fail_to_pass_tests if outcomes.get(t) == "PASSED")
-    p2p_passed = sum(1 for t in task.pass_to_pass_tests if outcomes.get(t) == "PASSED")
-    tail = "\n".join(combined.strip().splitlines()[-12:])
-    return f2p_passed, p2p_passed, tail, False
+        combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        outcomes = _parse_junit_xml(junit_path)
+        f2p_passed = sum(1 for t in task.fail_to_pass_tests if outcomes.get(t) is True)
+        p2p_passed = sum(1 for t in task.pass_to_pass_tests if outcomes.get(t) is True)
+        tail = "\n".join(combined.strip().splitlines()[-12:])
+        return f2p_passed, p2p_passed, tail, False, int(proc.returncode)
 
 
 def _percentile(values: Sequence[float], p: float) -> float:
@@ -494,6 +550,7 @@ class SWEBenchProRunner:
         sandbox: Optional[ProvisionedSandbox] = None
         agent_time_ms = 0.0
         eval_time_ms = 0.0
+        res: Optional[TaskRunResult] = None
 
         with IOProfiler(profile) as io_prof:
             try:
@@ -517,14 +574,13 @@ class SWEBenchProRunner:
                 # Fail closed if pre-execution anti-leakage audit detected any violation
                 if not integrity.pre_audit_clean:
                     cost = self.cost_tracker.record(prompt_tokens=0, completion_tokens=0, calls=0)
-                    result_status = TaskStatus.LEAKAGE_BLOCKED
                     error_msg = "; ".join(v.detail for v in integrity.violations)
                     io_tel = self._finalize_io(io_prof, sandbox, 0.0)
-                    return TaskRunResult(
+                    res = TaskRunResult(
                         instance_id=task.instance_id,
                         agent_name=agent.name,
                         storage_profile=profile,
-                        status=result_status,
+                        status=TaskStatus.LEAKAGE_BLOCKED,
                         resolved=False,
                         tampered=False,
                         leakage_blocked=True,
@@ -532,7 +588,7 @@ class SWEBenchProRunner:
                         fail_to_pass_total=len(task.fail_to_pass_tests),
                         pass_to_pass_passed=0,
                         pass_to_pass_total=len(task.pass_to_pass_tests),
-                        wall_time_ms=io_prof.wall_ms or sandbox.setup_ms,
+                        wall_time_ms=0.0,
                         agent_time_ms=0.0,
                         eval_time_ms=0.0,
                         cost=cost,
@@ -540,41 +596,45 @@ class SWEBenchProRunner:
                         integrity=integrity,
                         error=error_msg,
                     )
+                else:
+                    # 3. Execute coding agent inside isolated workspace
+                    t_agent0 = time.perf_counter_ns()
+                    agent_out = await agent.solve(task, sandbox.workspace, dict(exec_env), self.ai_config)
+                    agent_time_ms = (time.perf_counter_ns() - t_agent0) / 1_000_000.0
 
-                # 3. Execute coding agent inside isolated workspace
-                t_agent0 = time.perf_counter_ns()
-                agent_out = await agent.solve(task, sandbox.workspace, dict(exec_env), self.ai_config)
-                agent_time_ms = (time.perf_counter_ns() - t_agent0) / 1_000_000.0
-
-                cost = self.cost_tracker.record(
-                    prompt_tokens=agent_out.prompt_tokens,
-                    completion_tokens=agent_out.completion_tokens,
-                    cached_tokens=agent_out.cached_tokens,
-                    calls=agent_out.calls,
-                )
-
-                # 4. Apply agent unified diff (if returned) via real `git apply`
-                patch_err = ""
-                if agent_out.patch_diff:
-                    applied, patch_err = await asyncio.to_thread(
-                        _apply_patch_in_workspace, sandbox.workspace, agent_out.patch_diff
+                    cost = self.cost_tracker.record(
+                        prompt_tokens=agent_out.prompt_tokens,
+                        completion_tokens=agent_out.completion_tokens,
+                        cached_tokens=agent_out.cached_tokens,
+                        calls=agent_out.calls,
                     )
-                    if not applied:
-                        # Still run post-integrity check so tampering is never masked
-                        await asyncio.to_thread(
-                            verify_post_execution_integrity,
-                            sandbox.workspace,
-                            protected_hashes=integrity.protected_test_hashes,
-                            base_filenames=set(task.base_files.keys()) | set(task.test_files.keys()),
-                            agent_env_overrides=agent_out.env_overrides,
-                            report=integrity,
+
+                    # 4. Apply agent unified diff (if returned) via real `git apply`
+                    patch_failed = False
+                    patch_err = ""
+                    if agent_out.patch_diff:
+                        applied, patch_err = await asyncio.to_thread(
+                            _apply_patch_in_workspace, sandbox.workspace, agent_out.patch_diff
                         )
-                        diff_ms, _ = await asyncio.to_thread(
-                            self.sandbox_manager.measure_snapshot_diff, sandbox
-                        )
+                        patch_failed = not applied
+
+                    # 5. Snapshot diff telemetry + Fail-closed post-execution anti-tampering audit
+                    diff_ms, _ = await asyncio.to_thread(
+                        self.sandbox_manager.measure_snapshot_diff, sandbox
+                    )
+                    await asyncio.to_thread(
+                        verify_post_execution_integrity,
+                        sandbox.workspace,
+                        protected_hashes=integrity.protected_test_hashes,
+                        base_filenames=set(task.base_files.keys()) | set(task.test_files.keys()),
+                        agent_env_overrides=agent_out.env_overrides,
+                        report=integrity,
+                    )
+
+                    if patch_failed:
                         io_tel = self._finalize_io(io_prof, sandbox, diff_ms)
                         tampered = not integrity.post_audit_clean
-                        return TaskRunResult(
+                        res = TaskRunResult(
                             instance_id=task.instance_id,
                             agent_name=agent.name,
                             storage_profile=profile,
@@ -586,99 +646,88 @@ class SWEBenchProRunner:
                             fail_to_pass_total=len(task.fail_to_pass_tests),
                             pass_to_pass_passed=0,
                             pass_to_pass_total=len(task.pass_to_pass_tests),
-                            wall_time_ms=0.0,  # filled after profiler exits
+                            wall_time_ms=0.0,
                             agent_time_ms=agent_time_ms,
                             eval_time_ms=0.0,
                             cost=cost,
                             io=io_tel,
                             integrity=integrity,
+                            test_output_tail=agent_out.notes,
                             error=patch_err,
                         )
-
-                # 5. Snapshot diff telemetry + Fail-closed post-execution anti-tampering audit
-                diff_ms, _ = await asyncio.to_thread(
-                    self.sandbox_manager.measure_snapshot_diff, sandbox
-                )
-                await asyncio.to_thread(
-                    verify_post_execution_integrity,
-                    sandbox.workspace,
-                    protected_hashes=integrity.protected_test_hashes,
-                    base_filenames=set(task.base_files.keys()) | set(task.test_files.keys()),
-                    agent_env_overrides=agent_out.env_overrides,
-                    report=integrity,
-                )
-
-                if not integrity.post_audit_clean:
-                    io_tel = self._finalize_io(io_prof, sandbox, diff_ms)
-                    err = "; ".join(v.detail for v in integrity.violations)
-                    res = TaskRunResult(
-                        instance_id=task.instance_id,
-                        agent_name=agent.name,
-                        storage_profile=profile,
-                        status=TaskStatus.TAMPERED,
-                        resolved=False,
-                        tampered=True,
-                        leakage_blocked=False,
-                        fail_to_pass_passed=0,
-                        fail_to_pass_total=len(task.fail_to_pass_tests),
-                        pass_to_pass_passed=0,
-                        pass_to_pass_total=len(task.pass_to_pass_tests),
-                        wall_time_ms=0.0,
-                        agent_time_ms=agent_time_ms,
-                        eval_time_ms=0.0,
-                        cost=cost,
-                        io=io_tel,
-                        integrity=integrity,
-                        test_output_tail=agent_out.notes,
-                        error=err,
-                    )
-                else:
-                    # 6. Execute real pytest grading inside verified workspace
-                    t_eval0 = time.perf_counter_ns()
-                    f2p_ok, p2p_ok, out_tail, timed_out = await asyncio.to_thread(
-                        _run_pytest_grading, sandbox.workspace, task, self.test_timeout_s
-                    )
-                    eval_time_ms = (time.perf_counter_ns() - t_eval0) / 1_000_000.0
-                    io_tel = self._finalize_io(io_prof, sandbox, diff_ms)
-
-                    if timed_out:
-                        status = TaskStatus.TIMEOUT
-                        resolved = False
-                    elif (
-                        f2p_ok == len(task.fail_to_pass_tests)
-                        and p2p_ok == len(task.pass_to_pass_tests)
-                    ):
-                        status = TaskStatus.RESOLVED
-                        resolved = True
+                    elif not integrity.post_audit_clean:
+                        io_tel = self._finalize_io(io_prof, sandbox, diff_ms)
+                        err = "; ".join(v.detail for v in integrity.violations)
+                        res = TaskRunResult(
+                            instance_id=task.instance_id,
+                            agent_name=agent.name,
+                            storage_profile=profile,
+                            status=TaskStatus.TAMPERED,
+                            resolved=False,
+                            tampered=True,
+                            leakage_blocked=False,
+                            fail_to_pass_passed=0,
+                            fail_to_pass_total=len(task.fail_to_pass_tests),
+                            pass_to_pass_passed=0,
+                            pass_to_pass_total=len(task.pass_to_pass_tests),
+                            wall_time_ms=0.0,
+                            agent_time_ms=agent_time_ms,
+                            eval_time_ms=0.0,
+                            cost=cost,
+                            io=io_tel,
+                            integrity=integrity,
+                            test_output_tail=agent_out.notes,
+                            error=err,
+                        )
                     else:
-                        status = TaskStatus.UNRESOLVED
-                        resolved = False
+                        # 6. Execute real pytest grading inside verified workspace
+                        t_eval0 = time.perf_counter_ns()
+                        f2p_ok, p2p_ok, out_tail, timed_out, exit_code = await asyncio.to_thread(
+                            _run_pytest_grading, sandbox.workspace, task, self.test_timeout_s
+                        )
+                        eval_time_ms = (time.perf_counter_ns() - t_eval0) / 1_000_000.0
+                        io_tel = self._finalize_io(io_prof, sandbox, diff_ms)
 
-                    res = TaskRunResult(
-                        instance_id=task.instance_id,
-                        agent_name=agent.name,
-                        storage_profile=profile,
-                        status=status,
-                        resolved=resolved,
-                        tampered=False,
-                        leakage_blocked=False,
-                        fail_to_pass_passed=f2p_ok,
-                        fail_to_pass_total=len(task.fail_to_pass_tests),
-                        pass_to_pass_passed=p2p_ok,
-                        pass_to_pass_total=len(task.pass_to_pass_tests),
-                        wall_time_ms=0.0,
-                        agent_time_ms=agent_time_ms,
-                        eval_time_ms=eval_time_ms,
-                        cost=cost,
-                        io=io_tel,
-                        integrity=integrity,
-                        test_output_tail=out_tail or agent_out.notes,
-                    )
+                        if timed_out:
+                            status = TaskStatus.TIMEOUT
+                            resolved = False
+                        elif (
+                            exit_code == 0
+                            and f2p_ok == len(task.fail_to_pass_tests)
+                            and p2p_ok == len(task.pass_to_pass_tests)
+                        ):
+                            status = TaskStatus.RESOLVED
+                            resolved = True
+                        else:
+                            status = TaskStatus.UNRESOLVED
+                            resolved = False
+
+                        res = TaskRunResult(
+                            instance_id=task.instance_id,
+                            agent_name=agent.name,
+                            storage_profile=profile,
+                            status=status,
+                            resolved=resolved,
+                            tampered=False,
+                            leakage_blocked=False,
+                            fail_to_pass_passed=f2p_ok,
+                            fail_to_pass_total=len(task.fail_to_pass_tests),
+                            pass_to_pass_passed=p2p_ok,
+                            pass_to_pass_total=len(task.pass_to_pass_tests),
+                            wall_time_ms=0.0,
+                            agent_time_ms=agent_time_ms,
+                            eval_time_ms=eval_time_ms,
+                            cost=cost,
+                            io=io_tel,
+                            integrity=integrity,
+                            test_output_tail=out_tail or agent_out.notes,
+                        )
             finally:
                 if sandbox is not None:
                     await asyncio.to_thread(sandbox.cleanup)
 
-        # Populate finalized profiler deltas after context exit
+        # Populate finalized profiler deltas after context exit for ALL terminal outcomes
+        assert res is not None
         res.wall_time_ms = io_prof.wall_ms
         res.io.proc_io_available = io_prof.telemetry.proc_io_available
         res.io.rchar_bytes = io_prof.telemetry.rchar_bytes

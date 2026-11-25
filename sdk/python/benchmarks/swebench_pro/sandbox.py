@@ -303,7 +303,9 @@ class SandboxManager:
                 if p.is_file():
                     bytes_copied += p.stat().st_size
 
-            # 2. Hardlink read-only immutable repo ballast & protected test files (zero copy)
+            # 2. Hardlink immutable repo_assets ballast (zero copy) while creating
+            #    private detached copies for mutable source files AND protected test files
+            #    so a rollout running `chmod +w` + edit can never mutate a shared CAS inode.
             protected_set = set(task.protected_test_paths)
             for dirpath, dirnames, filenames in os.walk(image.image_dir, followlinks=False):
                 if ".git" in dirnames:
@@ -313,15 +315,14 @@ class SandboxManager:
                 dst_dir.mkdir(parents=True, exist_ok=True)
                 for fname in filenames:
                     src_file = Path(dirpath) / fname
-                    rel_file = str((rel_dir / fname).as_posix()).lstrip("./")
+                    rel_file = src_file.relative_to(image.image_dir).as_posix()
                     dst_file = workspace / rel_file
                     files_materialized += 1
-                    if rel_file.startswith("repo_assets/") or rel_file in protected_set:
+                    if rel_file.startswith("repo_assets/") and rel_file not in protected_set:
                         os.link(src_file, dst_file)
                         hardlinked_files += 1
                     else:
-                        # Writable copy-up for mutable package files so in-place edits
-                        # never touch the shared CAS image
+                        # Private detached copy for mutable package files and protected tests
                         data = src_file.read_bytes()
                         dst_file.write_bytes(data)
                         bytes_copied += len(data)
