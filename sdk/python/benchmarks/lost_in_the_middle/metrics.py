@@ -193,14 +193,14 @@ def aggregate_evaluations(
     p50_lat = percentile(latencies, 50.0)
     p95_lat = percentile(latencies, 95.0)
 
-    # Primacy (pos == 1), Middle (pos == N // 2 or (N+1)//2), Recency (pos == N)
+    # Primacy (pos == 1), Middle (exact 1-based center (N + 1) // 2), Recency (pos == N)
     primacy_vals = [
         float(r["correctness"]) for r in records if int(r["gold_position"]) == 1
     ]
     middle_vals = [
         float(r["correctness"])
         for r in records
-        if int(r["gold_position"]) == max(1, int(r["num_docs"]) // 2)
+        if int(r["gold_position"]) == max(1, (int(r["num_docs"]) + 1) // 2)
     ]
     recency_vals = [
         float(r["correctness"])

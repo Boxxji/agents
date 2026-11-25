@@ -10,6 +10,7 @@ Provides four explicitly separated evaluation modes to preserve strict scientifi
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import math
 import os
@@ -27,7 +28,12 @@ from hanzo_agents.types import AIConfig
 
 from .dataset import BenchmarkCase, Document
 from .metrics import exact_match, substring_match, token_f1
-from .packers import PackedContext
+from .packers import (
+    PackedContext,
+    _SYSTEM_PREAMBLE,
+    _format_isolated_block,
+    _format_plain_block,
+)
 
 # Published Liu et al. (TACL 2024, Fig. 2 / Sec. 3, 20-document Multi-Document QA)
 # empirical reference anchors: (normalized_position_0_to_1, published_accuracy).
@@ -335,8 +341,13 @@ class BudgetTruncationEvaluator:
         else:
             if packed.gold_retained_in_final_prompt:
                 prompt_low = packed.final_prompt.lower()
+                unesc_low = html.unescape(packed.final_prompt).lower()
                 matched = next(
-                    (a for a in case.all_accepted_answers if a and a.lower() in prompt_low),
+                    (
+                        a
+                        for a in case.all_accepted_answers
+                        if a and (a.lower() in prompt_low or a.lower() in unesc_low)
+                    ),
                     case.gold_answer,
                 )
                 prediction = matched
@@ -418,8 +429,13 @@ class DistractorInterferenceEvaluator:
         else:
             if packed.gold_retained_in_final_prompt:
                 prompt_low = packed.final_prompt.lower()
+                unesc_low = html.unescape(packed.final_prompt).lower()
                 matched = next(
-                    (a for a in case.all_accepted_answers if a and a.lower() in prompt_low),
+                    (
+                        a
+                        for a in case.all_accepted_answers
+                        if a and (a.lower() in prompt_low or a.lower() in unesc_low)
+                    ),
                     case.gold_answer,
                 )
                 prediction = matched
@@ -476,6 +492,74 @@ def _interpolate_curve(
     return anchors[-1][1]
 
 
+_PLAIN_DOC_HEADER_RE = re.compile(r"(?m)^\[Document \d+\] \(Title:")
+
+
+def _count_surviving_documents(packed: PackedContext) -> int:
+    """Count documents actually surviving budget enforcement inside packed.final_prompt.
+
+    Uses exact block-span overlap against packed.prompt when final_prompt was derived
+    from packed.prompt via middle-trim or tail-clip, falling back to formatted header
+    counting for externally constructed PackedContext instances.
+    """
+    if not packed.final_prompt:
+        return 0
+    if not packed.truncated and packed.final_prompt == packed.prompt:
+        return len(packed.ordered_documents)
+
+    # Reconstruct exact [start, end) character spans of each rendered document block in prompt
+    spans: List[Tuple[int, int]] = []
+    if packed.ordered_documents and packed.prompt.startswith(_SYSTEM_PREAMBLE):
+        cursor = len(_SYSTEM_PREAMBLE) + 1  # +1 for "\n" separator after preamble
+        for idx, doc in enumerate(packed.ordered_documents, start=1):
+            block = (
+                _format_isolated_block(doc, idx, packed.boundary_nonce)
+                if packed.boundary_nonce is not None
+                else _format_plain_block(doc, idx)
+            )
+            if packed.prompt.startswith(block, cursor):
+                spans.append((cursor, cursor + len(block)))
+                cursor += len(block) + 1
+            else:
+                spans = []
+                break
+
+    if spans:
+        marker = "\n…TRIMMED…\n"
+        if marker in packed.final_prompt:
+            head, tail = packed.final_prompt.split(marker, 1)
+            if packed.prompt.startswith(head) and packed.prompt.endswith(tail):
+                head_end = len(head)
+                tail_start = len(packed.prompt) - len(tail)
+                return sum(
+                    1 for s, e in spans if (s < head_end) or (e > tail_start)
+                )
+        else:
+            # Handle tail_clip (prefix of prompt + optional preserved question footer)
+            limit = min(len(packed.prompt), len(packed.final_prompt))
+            lcp = 0
+            while lcp < limit and packed.prompt[lcp] == packed.final_prompt[lcp]:
+                lcp += 1
+            suffix = packed.final_prompt[lcp:]
+            if not suffix or packed.prompt.endswith(suffix):
+                tail_start = len(packed.prompt) - len(suffix) if suffix else len(packed.prompt)
+                return sum(
+                    1 for s, e in spans if (s < lcp) or (e > tail_start)
+                )
+
+    # Fallback: count formatted document block markers present in final_prompt
+    if packed.boundary_nonce is not None:
+        open_count = packed.final_prompt.count(
+            f'<evidence_doc boundary="{packed.boundary_nonce}"'
+        )
+        close_count = packed.final_prompt.count(
+            f'</evidence_doc boundary="{packed.boundary_nonce}">'
+        )
+        return max(open_count, close_count)
+
+    return len(_PLAIN_DOC_HEADER_RE.findall(packed.final_prompt))
+
+
 class CalibratedTACL2024Evaluator:
     """Explicitly labeled offline sensitivity stress-test parameterized from Liu et al. TACL 2024.
 
@@ -512,18 +596,27 @@ class CalibratedTACL2024Evaluator:
         else:
             # Locate gold fact's actual character offset inside final_prompt
             low_prompt = packed.final_prompt.lower()
+            unesc_prompt = html.unescape(packed.final_prompt).lower()
             if case.gold_entity:
                 anchor_needle = case.gold_entity.lower()
             else:
                 anchor_needle = next(
-                    (a.lower() for a in case.all_accepted_answers if a and a.lower() in low_prompt),
+                    (
+                        a.lower()
+                        for a in case.all_accepted_answers
+                        if a and (a.lower() in low_prompt or a.lower() in unesc_prompt)
+                    ),
                     case.gold_answer.lower(),
                 )
             char_idx = low_prompt.find(anchor_needle)
+            search_len = len(low_prompt)
+            if char_idx < 0:
+                char_idx = unesc_prompt.find(anchor_needle)
+                search_len = len(unesc_prompt)
             rel_pos = (
-                char_idx / max(1, len(low_prompt) - 1) if char_idx >= 0 else 0.5
+                char_idx / max(1, search_len - 1) if char_idx >= 0 else 0.5
             )
-            num_retained = max(1, len(packed.ordered_documents))
+            num_retained = max(1, _count_surviving_documents(packed))
             base_curve = _interpolate_curve(self._anchors, rel_pos)
 
             if num_retained <= 3:

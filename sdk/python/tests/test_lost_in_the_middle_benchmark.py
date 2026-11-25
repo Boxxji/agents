@@ -517,3 +517,286 @@ def test_oversized_external_passage_fallback_fits_strictly_without_splicing(
         assert packed.final_prompt.endswith(f"Question: {case.question}\nAnswer:")
         assert packed.gold_retained_in_final_prompt is True
 
+
+@pytest.mark.asyncio
+async def test_calibrated_evaluator_crowding_uses_surviving_docs_in_final_prompt() -> None:
+    """Calibrated crowding must count documents surviving in final_prompt, not pre-truncation ordered_documents."""
+    from dataclasses import replace
+
+    from benchmarks.lost_in_the_middle.evaluator import (
+        CalibratedTACL2024Evaluator,
+        _count_surviving_documents,
+    )
+
+    cases = generate_position_sweep_suite(doc_counts=(20,), cases_per_position=1, seed=42)
+    # Pick case with gold at pos 2 (middle of first 3 docs) so crowding difference between N=3 and N=20 is visible
+    case = next(c for c in cases if c.gold_position == 2)
+    first_three = case.documents[:3]
+
+    # Budgeted pack containing only the 3 docs (untruncated)
+    budgeted_3 = pack_context(
+        case,
+        policy="chronological",
+        budget_tokens=4096,
+        documents_override=first_three,
+    )
+    assert budgeted_3.truncated is False
+    assert _count_surviving_documents(budgeted_3) == 3
+
+    # Trimmed baseline whose ordered_documents has all 20 docs, but final_prompt contains the exact same 3 surviving docs
+    full_20 = pack_context(case, policy="chronological", budget_tokens=4096)
+    trimmed_20_with_3_surviving = replace(
+        full_20,
+        final_prompt=budgeted_3.final_prompt,
+        estimated_tokens=budgeted_3.estimated_tokens,
+        budget_tokens=512,
+        truncated=True,
+        truncation_mode="tail_clip",
+        gold_retained_in_final_prompt=True,
+    )
+    assert len(trimmed_20_with_3_surviving.ordered_documents) == 20
+    assert _count_surviving_documents(trimmed_20_with_3_surviving) == 3
+
+    ev = CalibratedTACL2024Evaluator(profile="gpt-3.5-turbo-16k")
+    res_budgeted = await ev.evaluate(case, budgeted_3)
+    res_trimmed = await ev.evaluate(case, trimmed_20_with_3_surviving)
+    assert res_trimmed.correctness == res_budgeted.correctness
+
+    # Also verify real hanzo_middle_trim on N=20 at 512 tokens counts far fewer than 20 surviving docs
+    real_trimmed = pack_context(
+        case,
+        policy="chronological",
+        budget_tokens=512,
+        truncation_mode="hanzo_middle_trim",
+    )
+    assert real_trimmed.truncated is True
+    assert 1 <= _count_surviving_documents(real_trimmed) < len(real_trimmed.ordered_documents)
+
+
+@pytest.mark.unit
+def test_aggregate_evaluations_middle_uses_exact_center_for_odd_n() -> None:
+    """aggregate_evaluations must use 1-based center (N + 1) // 2: pos 3 for N=5 and pos 2 for N=3."""
+    from benchmarks.lost_in_the_middle.metrics import aggregate_evaluations
+
+    def _rec(num_docs: int, gold_pos: int, corr: float) -> dict:
+        return {
+            "num_docs": num_docs,
+            "gold_position": gold_pos,
+            "correctness": corr,
+            "evidence_retained": True,
+            "truncation_lost_gold": False,
+            "estimated_tokens": 250,
+            "boundary_integrity_ok": True,
+            "packing_latency_ms": 0.5,
+        }
+
+    # N=5: center is pos 3 (0.20), NOT pos 2 (0.95)
+    recs_n5 = [
+        _rec(5, 1, 0.80),
+        _rec(5, 2, 0.95),
+        _rec(5, 3, 0.20),
+        _rec(5, 4, 0.85),
+        _rec(5, 5, 0.70),
+    ]
+    agg_n5 = aggregate_evaluations("test_policy", recs_n5)
+    assert agg_n5.primacy_correctness == 0.8
+    assert agg_n5.middle_correctness == 0.2
+    assert agg_n5.recency_correctness == 0.7
+    assert agg_n5.edge_minus_middle_gap == round(((0.8 + 0.7) / 2.0) - 0.2, 6)
+
+    # N=3: center is pos 2 (0.30), NOT pos 1 (0.90)
+    recs_n3 = [
+        _rec(3, 1, 0.90),
+        _rec(3, 2, 0.30),
+        _rec(3, 3, 0.80),
+    ]
+    agg_n3 = aggregate_evaluations("test_policy", recs_n3)
+    assert agg_n3.primacy_correctness == 0.9
+    assert agg_n3.middle_correctness == 0.3
+    assert agg_n3.recency_correctness == 0.8
+    assert agg_n3.edge_minus_middle_gap == round(((0.9 + 0.8) / 2.0) - 0.3, 6)
+
+
+@pytest.mark.asyncio
+async def test_external_evidence_retention_uses_answer_bearing_span_not_first_48_chars(
+    tmp_path: Path,
+) -> None:
+    """Dropping lead-in filler while preserving the complete answer-bearing sentence must count as retained."""
+    from benchmarks.lost_in_the_middle.packers import _check_gold_retained
+
+    lead_in = (
+        "UNIQUE_LEADIN_HEADER_PREFIX_THAT_WILL_BE_DROPPED_BY_MIDDLE_TRIM: "
+        + "Historical background filler about telescope calibration procedures. " * 25
+    )
+    answer_sentence = (
+        "Official mission logs confirm that Neil Armstrong commanded the Apollo 11 lunar landing."
+    )
+    row = {
+        "question": "Who commanded the Apollo 11 lunar landing?",
+        "answers": ["Neil Armstrong"],
+        "ctxs": [
+            {
+                "title": "Background Filler",
+                "text": "Unrelated orbital mechanics notes repeated for length. " * 30,
+                "hasanswer": False,
+                "score": 0.4,
+            },
+            {
+                "title": "Apollo Mission Log",
+                "text": f"{lead_in}{answer_sentence}",
+                "hasanswer": True,
+                "score": 0.95,
+            },
+        ],
+    }
+    jsonl_path = tmp_path / "span_retention.jsonl"
+    jsonl_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    case = load_jsonl_cases(jsonl_path)[0]
+
+    # Chronological + hanzo_middle_trim keeps head (start of doc 1) and tail (answer_sentence at end of doc 2)
+    packed = pack_context(
+        case,
+        policy="chronological",
+        budget_tokens=256,
+        truncation_mode="hanzo_middle_trim",
+    )
+    assert packed.truncated is True
+    assert "UNIQUE_LEADIN_HEADER_PREFIX" not in packed.final_prompt
+    assert answer_sentence in packed.final_prompt
+    assert packed.gold_retained_in_final_prompt is True
+
+    ev = await BudgetTruncationEvaluator().evaluate(case, packed)
+    assert ev.evidence_retained is True
+    assert ev.correctness == 1.0
+
+    # Negative check: an unrelated distractor mentioning the name in a different sentence must NOT count
+    bogus_prompt = (
+        "[Document 1] (Title: Distractor)\n"
+        "A completely unrelated jazz concert featured Neil Armstrong on trumpet.\n"
+        f"Question: {case.question}\nAnswer:"
+    )
+    assert _check_gold_retained(case, bogus_prompt) is False
+
+
+@pytest.mark.asyncio
+async def test_external_multi_hasanswer_tracks_all_gold_doc_ids_and_accepts_any_survivor(
+    tmp_path: Path,
+) -> None:
+    """External rows with multiple hasanswer:true contexts must track all gold_doc_ids and accept any survivor."""
+    filler_body = "Long archival background telemetry paragraph for budget pressure. " * 40
+    row = {
+        "question": "Which harbor hosts the lighthouse?",
+        "answers": ["Port Meridian"],
+        "ctxs": [
+            {
+                "title": "Primary Harbor Record",
+                "text": "Maritime ledger notes that Port Meridian hosts the historic stone lighthouse.",
+                "hasanswer": True,
+                "score": 0.96,
+            },
+            {
+                "title": "Distractor A",
+                "text": filler_body,
+                "hasanswer": False,
+                "score": 0.60,
+            },
+            {
+                "title": "Distractor B",
+                "text": filler_body.replace("archival", "coastal"),
+                "hasanswer": False,
+                "score": 0.55,
+            },
+            {
+                "title": "Secondary Harbor Record",
+                "text": (
+                    "Travel guide confirms the lighthouse stands in Port Meridian bay. "
+                    + "Extended regional navigation notes for mariners. " * 20
+                ),
+                "hasanswer": True,
+                "score": 0.25,
+            },
+        ],
+    }
+    jsonl_path = tmp_path / "multi_gold.jsonl"
+    jsonl_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    case = load_jsonl_cases(jsonl_path)[0]
+
+    assert case.gold_doc_ids == ("ext_0_d00", "ext_0_d03")
+    assert case.all_gold_doc_ids == ("ext_0_d00", "ext_0_d03")
+
+    # Budget keeps only top-ranked ext_0_d00 while dropping lower-scored ext_0_d03
+    packed_first = pack_context(case, policy="dedup_budgeted_bookend", budget_tokens=180)
+    surviving_ids = {d.doc_id for d in packed_first.ordered_documents}
+    assert "ext_0_d00" in surviving_ids
+    assert "ext_0_d03" not in surviving_ids
+    assert packed_first.gold_doc_index_1based is not None
+    assert packed_first.gold_retained_in_final_prompt is True
+
+    # Mirror: when only the second hasanswer doc (ext_0_d03) is present, it is also accepted
+    only_second = [d for d in case.documents if d.doc_id != "ext_0_d00"]
+    packed_second = pack_context(
+        case,
+        policy="dedup_budgeted_bookend",
+        budget_tokens=2048,
+        documents_override=only_second,
+    )
+    assert packed_second.gold_doc_index_1based is not None
+    assert packed_second.gold_retained_in_final_prompt is True
+
+    ev_first = await BudgetTruncationEvaluator().evaluate(case, packed_first)
+    ev_second = await BudgetTruncationEvaluator().evaluate(case, packed_second)
+    assert ev_first.correctness == 1.0
+    assert ev_second.correctness == 1.0
+
+
+@pytest.mark.asyncio
+async def test_html_escaped_answer_like_apollo_counts_as_retained(
+    tmp_path: Path,
+) -> None:
+    """XML/HTML-escaped answers such as <Apollo> -> &lt;Apollo&gt; must count as retained, not lost."""
+    from benchmarks.lost_in_the_middle.evaluator import (
+        CalibratedTACL2024Evaluator,
+        DistractorInterferenceEvaluator,
+    )
+
+    row = {
+        "question": "What is the exact orbital callsign token?",
+        "answers": ["<Apollo>"],
+        "ctxs": [
+            {
+                "title": "Flight Telemetry",
+                "text": "The verified orbital callsign token is <Apollo> during lunar insertion.",
+                "hasanswer": True,
+                "score": 0.94,
+            },
+            {
+                "title": "Ground Control Note",
+                "text": "Weather stations reported clear skies over the launch complex.",
+                "hasanswer": False,
+                "score": 0.30,
+            },
+        ],
+    }
+    jsonl_path = tmp_path / "escaped_answer.jsonl"
+    jsonl_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    case = load_jsonl_cases(jsonl_path)[0]
+
+    packed = pack_context(case, policy="dedup_budgeted_bookend", budget_tokens=1024)
+    assert "&lt;Apollo&gt;" in packed.final_prompt
+    assert "<Apollo>" not in packed.final_prompt
+    assert packed.boundary_integrity_ok is True
+    assert packed.gold_retained_in_final_prompt is True
+
+    ev_trunc = await BudgetTruncationEvaluator().evaluate(case, packed)
+    ev_dist = await DistractorInterferenceEvaluator().evaluate(case, packed)
+    ev_cal = await CalibratedTACL2024Evaluator().evaluate(case, packed)
+
+    assert ev_trunc.evidence_retained is True
+    assert ev_trunc.correctness == 1.0
+    assert ev_trunc.exact_match_score == 1.0
+    assert ev_dist.evidence_retained is True
+    assert ev_dist.correctness == 1.0
+    assert ev_cal.evidence_retained is True
+    assert ev_cal.correctness > 0.0
+
+

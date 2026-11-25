@@ -69,6 +69,7 @@ class BenchmarkCase:
     documents: Tuple[Document, ...]
     query_embedding: Tuple[float, ...]
     accepted_answers: Tuple[str, ...] = ()
+    gold_doc_ids: Tuple[str, ...] = ()
 
     @property
     def all_accepted_answers(self) -> Tuple[str, ...]:
@@ -76,6 +77,13 @@ class BenchmarkCase:
         if self.accepted_answers:
             return self.accepted_answers
         return (self.gold_answer,) if self.gold_answer else ()
+
+    @property
+    def all_gold_doc_ids(self) -> Tuple[str, ...]:
+        """Return all answer-bearing document IDs, falling back to (gold_doc_id,) when unset."""
+        if self.gold_doc_ids:
+            return self.gold_doc_ids
+        return (self.gold_doc_id,) if self.gold_doc_id else ()
 
 
 _SERVICES = (
@@ -447,6 +455,7 @@ def _build_single_case(
         documents=tuple(ordered),
         query_embedding=query_vec,
         accepted_answers=(gold_answer,),
+        gold_doc_ids=(gold_doc_id,),
     )
 
 
@@ -613,14 +622,15 @@ def load_jsonl_cases(
             norm_scores = _normalize_collection_scores(raw_scores)
 
             docs: List[Document] = []
-            gold_pos = 1
-            gold_doc_id = f"ext_{idx}_d00"
+            gold_pos: Optional[int] = None
+            found_gold_doc_ids: List[str] = []
             for slot, (ctx, norm_score) in enumerate(zip(ctxs, norm_scores)):
                 has_ans = bool(ctx.get("hasanswer", False))
                 doc_id = f"ext_{idx}_d{slot:02d}"
                 if has_ans:
-                    gold_pos = slot + 1
-                    gold_doc_id = doc_id
+                    if gold_pos is None:
+                        gold_pos = slot + 1
+                    found_gold_doc_ids.append(doc_id)
                 docs.append(
                     Document(
                         doc_id=doc_id,
@@ -635,6 +645,8 @@ def load_jsonl_cases(
                         ),
                     )
                 )
+            gold_doc_ids = tuple(found_gold_doc_ids) if found_gold_doc_ids else (f"ext_{idx}_d00",)
+            gold_doc_id = gold_doc_ids[0]
             cases.append(
                 BenchmarkCase(
                     case_id=f"ext_{idx:04d}",
@@ -643,12 +655,13 @@ def load_jsonl_cases(
                     gold_entity="",
                     gold_attribute="",
                     gold_doc_id=gold_doc_id,
-                    gold_position=gold_pos,
+                    gold_position=gold_pos if gold_pos is not None else 1,
                     num_docs=len(docs),
                     regime="external_jsonl",
                     documents=tuple(docs),
                     query_embedding=query_vec,
                     accepted_answers=accepted_answers,
+                    gold_doc_ids=gold_doc_ids,
                 )
             )
     return cases

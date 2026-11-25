@@ -11,6 +11,7 @@ Implements 5 packing policies evaluated over Hanzo's real AIConfig token budgeti
 from __future__ import annotations
 
 import hashlib
+import html
 import math
 import re
 import time
@@ -233,49 +234,144 @@ def audit_boundary_integrity(
     return True
 
 
+def _enclosing_sentence_bounds(text: str, pos: int, end: int) -> Tuple[int, int]:
+    """Return [start, end) character offsets of the sentence containing text[pos:end]."""
+    s_start = 0
+    for sep in ("\n", ". ", "! ", "? "):
+        idx = text.rfind(sep, 0, pos)
+        if idx != -1:
+            s_start = max(s_start, idx + len(sep))
+    s_end = len(text)
+    for sep in ("\n", ".", "!", "?"):
+        idx = text.find(sep, end)
+        if idx != -1:
+            s_end = min(s_end, idx + (0 if sep == "\n" else 1))
+    return s_start, s_end
+
+
+def _answer_span_candidates(doc_text: str, accepted: Sequence[str]) -> List[str]:
+    """Extract answer-bearing local span/sentence windows around accepted answers in doc_text."""
+    candidates: List[str] = []
+    seen: set[str] = set()
+    low_doc = doc_text.lower()
+    for ans in accepted:
+        ans_low = ans.lower()
+        if not ans_low:
+            continue
+        search_from = 0
+        while True:
+            pos = low_doc.find(ans_low, search_from)
+            if pos == -1:
+                break
+            end = pos + len(ans_low)
+            s_start, s_end = _enclosing_sentence_bounds(doc_text, pos, end)
+            around = doc_text[max(s_start, pos - 24) : min(s_end, end + 24)].strip()
+            left = doc_text[max(s_start, pos - 24) : end].strip()
+            right = doc_text[pos : min(s_end, end + 24)].strip()
+
+            local_spans: List[str] = []
+            if around:
+                local_spans.append(around)
+            if len(left) >= len(ans_low) + 8:
+                local_spans.append(left)
+            if len(right) >= len(ans_low) + 8:
+                local_spans.append(right)
+
+            for sp in local_spans:
+                key = sp.lower()
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append(sp)
+            search_from = end
+    return candidates
+
+
+def _answer_forms(ans: str) -> Tuple[str, ...]:
+    """Return lowercase raw and HTML/XML-escaped variants of an answer string."""
+    forms = {
+        ans.lower(),
+        html.escape(ans, quote=False).lower(),
+        html.escape(ans, quote=True).lower(),
+        _escape_untrusted_text(ans).lower(),
+    }
+    return tuple(f for f in forms if f)
+
+
 def _check_gold_retained(case: BenchmarkCase, final_prompt: str) -> bool:
     """Check whether any accepted gold answer-bearing fact survived intact in final_prompt."""
-    gold_doc = next((d for d in case.documents if d.doc_id == case.gold_doc_id), None)
-    if gold_doc is None:
+    gold_id_set = set(case.all_gold_doc_ids)
+    gold_docs = [d for d in case.documents if d.doc_id in gold_id_set or d.is_gold]
+    if not gold_docs:
         return False
 
     accepted = [a for a in case.all_accepted_answers if a]
     if not accepted:
         return False
 
-    # Require at least one accepted gold answer string to be present in final_prompt
-    prompt_low = final_prompt.lower()
-    if not any(ans.lower() in prompt_low for ans in accepted):
+    # Strip the trailing question footer so answers repeated in the question do not self-match
+    evidence_prompt = final_prompt
+    for footer in (
+        f"\nQuestion: {case.question}\nAnswer:",
+        f"Question: {case.question}\nAnswer:",
+    ):
+        if evidence_prompt.endswith(footer):
+            evidence_prompt = evidence_prompt[: -len(footer)]
+            break
+
+    # Require at least one accepted gold answer (raw or HTML/XML-escaped) in evidence_prompt
+    prompt_raw_low = evidence_prompt.lower()
+    prompt_unesc_low = html.unescape(evidence_prompt).lower()
+    answer_variants = [form for ans in accepted for form in _answer_forms(ans)]
+    if not (
+        any(ans.lower() in prompt_unesc_low for ans in accepted)
+        or any(var in prompt_raw_low for var in answer_variants)
+    ):
         return False
 
-    # For structured cases with a target entity, require entity + answer to co-occur
-    # within the same uninterrupted segment (not split across "\n…TRIMMED…\n")
-    segments = final_prompt.split("\n…TRIMMED…\n")
+    # Split across middle-trim splice marker so entity/span and answer must co-occur intact
+    segments = evidence_prompt.split("\n…TRIMMED…\n")
     if case.gold_entity:
         entity_low = case.gold_entity.lower()
         for seg in segments:
-            seg_low = seg.lower()
-            if entity_low in seg_low and any(ans.lower() in seg_low for ans in accepted):
-                # Verify they occur close enough (same passage, <= 220 chars apart)
-                e_pos = 0
-                while True:
-                    idx = seg_low.find(entity_low, e_pos)
-                    if idx == -1:
-                        break
-                    window = seg_low[max(0, idx - 80) : idx + 220]
-                    if any(ans.lower() in window for ans in accepted):
-                        return True
-                    e_pos = idx + len(entity_low)
+            for seg_low in (html.unescape(seg).lower(), seg.lower()):
+                if entity_low in seg_low and (
+                    any(ans.lower() in seg_low for ans in accepted)
+                    or any(var in seg_low for var in answer_variants)
+                ):
+                    # Verify they occur close enough (same passage, <= 220 chars apart)
+                    e_pos = 0
+                    while True:
+                        idx = seg_low.find(entity_low, e_pos)
+                        if idx == -1:
+                            break
+                        window = seg_low[max(0, idx - 80) : idx + 220]
+                        if any(ans.lower() in window for ans in accepted) or any(
+                            var in window for var in answer_variants
+                        ):
+                            return True
+                        e_pos = idx + len(entity_low)
         return False
 
-    # External JSONL fallback: first 48 chars of gold content (raw or escaped) + any accepted answer in same segment
-    raw_anchor = gold_doc.content[:48].strip()
-    anchors = [a for a in {raw_anchor.lower(), _escape_untrusted_text(raw_anchor).lower()} if a]
-    return any(
-        any(anc in seg.lower() for anc in anchors)
-        and any(ans.lower() in seg.lower() for ans in accepted)
-        for seg in segments
-    )
+    # External JSONL rows: check answer-bearing span/sentence from ANY gold document
+    # (so dropping lead-in filler or escaping <...> never falsely counts as answer loss)
+    seg_views = [(seg.lower(), html.unescape(seg).lower()) for seg in segments]
+    for gold_doc in gold_docs:
+        spans = _answer_span_candidates(gold_doc.content, accepted)
+        if not spans:
+            unesc_content = html.unescape(gold_doc.content)
+            if unesc_content != gold_doc.content:
+                spans = _answer_span_candidates(unesc_content, accepted)
+        for span in spans:
+            span_raw_low = span.lower()
+            span_escaped_forms = _answer_forms(span)
+            for seg_raw_low, seg_unesc_low in seg_views:
+                if (
+                    span_raw_low in seg_unesc_low
+                    or span_raw_low in seg_raw_low
+                    or any(ef in seg_raw_low for ef in span_escaped_forms)
+                ):
+                    return True
+    return False
 
 
 def _apply_budget_enforcement(
@@ -468,9 +564,10 @@ def pack_context(
     final_tokens = estimate_tokens(final_prompt, chars_per_token=chars_per_token)
     elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
 
+    gold_id_set = set(case.all_gold_doc_ids)
     gold_idx: Optional[int] = None
     for idx, d in enumerate(ordered, start=1):
-        if d.doc_id == case.gold_doc_id:
+        if d.doc_id in gold_id_set or d.is_gold:
             gold_idx = idx
             break
 
