@@ -333,11 +333,20 @@ class BudgetTruncationEvaluator:
             else:
                 prediction = ""
         else:
-            prediction = case.gold_answer if packed.gold_retained_in_final_prompt else ""
+            if packed.gold_retained_in_final_prompt:
+                prompt_low = packed.final_prompt.lower()
+                matched = next(
+                    (a for a in case.all_accepted_answers if a and a.lower() in prompt_low),
+                    case.gold_answer,
+                )
+                prediction = matched
+            else:
+                prediction = ""
 
-        corr = substring_match(prediction, case.gold_answer)
-        em = exact_match(prediction, case.gold_answer)
-        f1 = token_f1(prediction, case.gold_answer)
+        golds = case.all_accepted_answers or (case.gold_answer,)
+        corr = substring_match(prediction, golds)
+        em = exact_match(prediction, golds)
+        f1 = token_f1(prediction, golds)
         trunc_lost_gold = (not packed.gold_retained_in_final_prompt) and (
             packed.truncated or (packed.gold_doc_index_1based is None)
         )
@@ -407,11 +416,20 @@ class DistractorInterferenceEvaluator:
                     vote_weights.items(), key=lambda kv: (kv[1], kv[0])
                 )[0]
         else:
-            prediction = case.gold_answer if packed.gold_retained_in_final_prompt else ""
+            if packed.gold_retained_in_final_prompt:
+                prompt_low = packed.final_prompt.lower()
+                matched = next(
+                    (a for a in case.all_accepted_answers if a and a.lower() in prompt_low),
+                    case.gold_answer,
+                )
+                prediction = matched
+            else:
+                prediction = ""
 
-        corr = substring_match(prediction, case.gold_answer)
-        em = exact_match(prediction, case.gold_answer)
-        f1 = token_f1(prediction, case.gold_answer)
+        golds = case.all_accepted_answers or (case.gold_answer,)
+        corr = substring_match(prediction, golds)
+        em = exact_match(prediction, golds)
+        f1 = token_f1(prediction, golds)
         trunc_lost_gold = (not packed.gold_retained_in_final_prompt) and (
             packed.truncated or (packed.gold_doc_index_1based is None)
         )
@@ -494,9 +512,13 @@ class CalibratedTACL2024Evaluator:
         else:
             # Locate gold fact's actual character offset inside final_prompt
             low_prompt = packed.final_prompt.lower()
-            anchor_needle = (
-                case.gold_entity.lower() if case.gold_entity else case.gold_answer.lower()
-            )
+            if case.gold_entity:
+                anchor_needle = case.gold_entity.lower()
+            else:
+                anchor_needle = next(
+                    (a.lower() for a in case.all_accepted_answers if a and a.lower() in low_prompt),
+                    case.gold_answer.lower(),
+                )
             char_idx = low_prompt.find(anchor_needle)
             rel_pos = (
                 char_idx / max(1, len(low_prompt) - 1) if char_idx >= 0 else 0.5
@@ -645,9 +667,10 @@ class LiveOpenAICompatibleEvaluator:
         prompt_toks = usage.get("prompt_tokens")
         comp_toks = usage.get("completion_tokens")
 
-        corr = substring_match(prediction, case.gold_answer)
-        em = exact_match(prediction, case.gold_answer)
-        f1 = token_f1(prediction, case.gold_answer)
+        golds = case.all_accepted_answers or (case.gold_answer,)
+        corr = substring_match(prediction, golds)
+        em = exact_match(prediction, golds)
+        f1 = token_f1(prediction, golds)
         trunc_lost_gold = (not packed.gold_retained_in_final_prompt) and (
             packed.truncated or (packed.gold_doc_index_1based is None)
         )

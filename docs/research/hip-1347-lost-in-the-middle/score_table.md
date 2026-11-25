@@ -1,6 +1,6 @@
 # HIP-1347 Lost-in-the-Middle Context Packing — Measured Score Tables
 
-- **Generated (UTC)**: `2026-11-25T00:11:01.226388+00:00`
+- **Generated (UTC)**: `2026-11-25T09:20:11.732311+00:00`
 - **Python / Platform**: `3.12.16` / `Linux-6.18.57-x86_64-with-glibc2.39`
 - **Seed**: `42` | **Total Cases**: `110` | **Doc Counts (N)**: `[5, 10, 20]` | **Token Budgets**: `[512, 1024, 2048, 4096]`
 
@@ -14,11 +14,11 @@
 
 | Policy | Answer Correctness | Evidence Retention | Truncation Loss | Mean Tokens | Efficiency (Acc/1K tok) | Boundary Integrity | Primacy (P1) | Middle (N/2) | Recency (PN) | p50 Lat (ms) | p95 Lat (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `chronological` | 60.7% | 60.7% | 39.3% | 1475.6 | 0.411 | 100.0% | 100.0% | 50.0% | 100.0% | 0.077 | 0.165 |
-| `score_descending` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.077 | 0.173 |
-| `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.079 | 0.158 |
-| `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1378.9 | 0.725 | 100.0% | 100.0% | 100.0% | 100.0% | 5.823 | 11.568 |
-| `middle_buried_adversarial` | 39.3% | 39.3% | 60.7% | 1475.6 | 0.266 | 100.0% | 50.0% | 50.0% | 50.0% | 0.094 | 0.213 |
+| `chronological` | 60.7% | 60.7% | 39.3% | 1475.6 | 0.411 | 100.0% | 100.0% | 50.0% | 100.0% | 0.075 | 0.131 |
+| `score_descending` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.072 | 0.116 |
+| `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.076 | 0.113 |
+| `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1378.9 | 0.725 | 100.0% | 100.0% | 100.0% | 100.0% | 5.509 | 6.960 |
+| `middle_buried_adversarial` | 39.3% | 39.3% | 60.7% | 1475.6 | 0.266 | 100.0% | 50.0% | 50.0% | 50.0% | 0.089 | 0.139 |
 
 ### Answer Correctness & Token Efficiency by Strict Token Budget
 
@@ -73,11 +73,11 @@
 
 | Policy | Answer Correctness | Evidence Retention | Truncation Loss | Mean Tokens | Efficiency (Acc/1K tok) | Boundary Integrity | Primacy (P1) | Middle (N/2) | Recency (PN) | p50 Lat (ms) | p95 Lat (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `chronological` | 62.9% | 62.9% | 37.1% | 1475.6 | 0.426 | 100.0% | 100.0% | 75.0% | 50.0% | 0.077 | 0.136 |
-| `score_descending` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.076 | 0.152 |
-| `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.081 | 0.138 |
-| `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1378.9 | 0.725 | 100.0% | 100.0% | 100.0% | 100.0% | 5.823 | 7.882 |
-| `middle_buried_adversarial` | 64.3% | 64.3% | 35.7% | 1475.6 | 0.436 | 100.0% | 75.0% | 75.0% | 75.0% | 0.088 | 0.156 |
+| `chronological` | 62.9% | 62.9% | 37.1% | 1475.6 | 0.426 | 100.0% | 100.0% | 75.0% | 50.0% | 0.076 | 0.157 |
+| `score_descending` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.074 | 0.150 |
+| `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.075 | 0.151 |
+| `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1378.9 | 0.725 | 100.0% | 100.0% | 100.0% | 100.0% | 5.684 | 9.251 |
+| `middle_buried_adversarial` | 64.3% | 64.3% | 35.7% | 1475.6 | 0.436 | 100.0% | 75.0% | 75.0% | 75.0% | 0.092 | 0.181 |
 
 ### Answer Correctness & Token Efficiency by Strict Token Budget
 
@@ -117,12 +117,12 @@
 | `duplicate_heavy` | `score_descending` | 75.0% | 75.0% | 25.0% | 1291.5 | 100.0% |
 | `duplicate_heavy` | `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1291.5 | 100.0% |
 | `duplicate_heavy` | `dedup_budgeted_bookend` | 75.0% | 75.0% | 25.0% | 1156.2 | 100.0% |
-| `duplicate_heavy` | `middle_buried_adversarial` | 75.0% | 75.0% | 25.0% | 1291.5 | 100.0% |
+| `duplicate_heavy` | `middle_buried_adversarial` | 72.5% | 75.0% | 25.0% | 1291.5 | 100.0% |
 | `prompt_injection` | `chronological` | 0.0% | 72.5% | 27.5% | 1297.4 | 0.0% |
 | `prompt_injection` | `score_descending` | 0.0% | 100.0% | 0.0% | 1297.4 | 0.0% |
 | `prompt_injection` | `bookend_primacy_recency` | 2.5% | 100.0% | 0.0% | 1297.4 | 2.5% |
 | `prompt_injection` | `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1320.5 | 100.0% |
-| `prompt_injection` | `middle_buried_adversarial` | 0.0% | 75.0% | 25.0% | 1297.4 | 0.0% |
+| `prompt_injection` | `middle_buried_adversarial` | 0.0% | 67.5% | 32.5% | 1297.4 | 0.0% |
 
 ## Run: `distractor_interference__hanzo_middle_trim` [PHYSICAL / NON-CIRCULAR]
 
@@ -132,11 +132,11 @@
 
 | Policy | Answer Correctness | Evidence Retention | Truncation Loss | Mean Tokens | Efficiency (Acc/1K tok) | Boundary Integrity | Primacy (P1) | Middle (N/2) | Recency (PN) | p50 Lat (ms) | p95 Lat (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `chronological` | 60.7% | 60.7% | 39.3% | 1475.6 | 0.411 | 100.0% | 100.0% | 50.0% | 100.0% | 0.075 | 0.123 |
-| `score_descending` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.073 | 0.117 |
-| `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.074 | 0.123 |
-| `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1378.9 | 0.725 | 100.0% | 100.0% | 100.0% | 100.0% | 5.596 | 6.958 |
-| `middle_buried_adversarial` | 39.3% | 39.3% | 60.7% | 1475.6 | 0.266 | 100.0% | 50.0% | 50.0% | 50.0% | 0.084 | 0.130 |
+| `chronological` | 60.7% | 60.7% | 39.3% | 1475.6 | 0.411 | 100.0% | 100.0% | 50.0% | 100.0% | 0.079 | 0.134 |
+| `score_descending` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.077 | 0.123 |
+| `bookend_primacy_recency` | 100.0% | 100.0% | 0.0% | 1475.6 | 0.678 | 100.0% | 100.0% | 100.0% | 100.0% | 0.078 | 0.132 |
+| `dedup_budgeted_bookend` | 100.0% | 100.0% | 0.0% | 1378.9 | 0.725 | 100.0% | 100.0% | 100.0% | 100.0% | 5.641 | 7.446 |
+| `middle_buried_adversarial` | 39.3% | 39.3% | 60.7% | 1475.6 | 0.266 | 100.0% | 50.0% | 50.0% | 50.0% | 0.095 | 0.148 |
 
 ### Answer Correctness & Token Efficiency by Strict Token Budget
 
@@ -191,11 +191,11 @@
 
 | Policy | Answer Correctness | Evidence Retention | Truncation Loss | Mean Tokens | Efficiency (Acc/1K tok) | Boundary Integrity | Primacy (P1) | Middle (N/2) | Recency (PN) | p50 Lat (ms) | p95 Lat (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `chronological` | 39.6% | 60.7% | 39.3% | 1475.6 | 0.268 | 100.0% | 73.7% | 34.1% | 66.8% | 0.070 | 0.130 |
-| `score_descending` | 72.9% | 100.0% | 0.0% | 1475.6 | 0.494 | 100.0% | 73.7% | 73.7% | 73.7% | 0.067 | 0.122 |
-| `bookend_primacy_recency` | 72.9% | 100.0% | 0.0% | 1475.6 | 0.494 | 100.0% | 73.7% | 73.7% | 73.7% | 0.072 | 0.147 |
-| `dedup_budgeted_bookend` | 75.1% | 100.0% | 0.0% | 1378.9 | 0.545 | 100.0% | 75.2% | 75.2% | 75.2% | 5.717 | 10.116 |
-| `middle_buried_adversarial` | 25.1% | 39.3% | 60.7% | 1475.6 | 0.170 | 100.0% | 34.0% | 34.0% | 34.0% | 0.079 | 0.130 |
+| `chronological` | 39.6% | 60.7% | 39.3% | 1475.6 | 0.268 | 100.0% | 73.7% | 34.1% | 66.8% | 0.074 | 0.131 |
+| `score_descending` | 72.9% | 100.0% | 0.0% | 1475.6 | 0.494 | 100.0% | 73.7% | 73.7% | 73.7% | 0.069 | 0.116 |
+| `bookend_primacy_recency` | 72.9% | 100.0% | 0.0% | 1475.6 | 0.494 | 100.0% | 73.7% | 73.7% | 73.7% | 0.073 | 0.118 |
+| `dedup_budgeted_bookend` | 75.1% | 100.0% | 0.0% | 1378.9 | 0.545 | 100.0% | 75.2% | 75.2% | 75.2% | 5.574 | 6.806 |
+| `middle_buried_adversarial` | 25.1% | 39.3% | 60.7% | 1475.6 | 0.170 | 100.0% | 34.0% | 34.0% | 34.0% | 0.091 | 0.138 |
 
 ### Answer Correctness & Token Efficiency by Strict Token Budget
 

@@ -68,6 +68,14 @@ class BenchmarkCase:
     regime: str  # standard | small_context | misranked_retriever | duplicate_heavy | prompt_injection
     documents: Tuple[Document, ...]
     query_embedding: Tuple[float, ...]
+    accepted_answers: Tuple[str, ...] = ()
+
+    @property
+    def all_accepted_answers(self) -> Tuple[str, ...]:
+        """Return all accepted answers, falling back to (gold_answer,) when unset."""
+        if self.accepted_answers:
+            return self.accepted_answers
+        return (self.gold_answer,) if self.gold_answer else ()
 
 
 _SERVICES = (
@@ -438,6 +446,7 @@ def _build_single_case(
         regime=regime,
         documents=tuple(ordered),
         query_embedding=query_vec,
+        accepted_answers=(gold_answer,),
     )
 
 
@@ -537,6 +546,27 @@ def generate_negative_regime_suite(
     return cases
 
 
+def _normalize_collection_scores(raw_scores: Sequence[float]) -> List[float]:
+    """Normalize arbitrary retrieval scores monotonically into [0.05, 0.99] per collection.
+
+    Guarantees strict order preservation (`a < b => norm(a) < norm(b)`) even when scores
+    cross 1.0 (e.g. 0.9 vs 1.1 vs 99.0) or include negative logits/BM25 values.
+    """
+    if not raw_scores:
+        return []
+    lo = min(raw_scores)
+    hi = max(raw_scores)
+    if 0.05 <= lo and hi <= 0.99:
+        return [float(s) for s in raw_scores]
+    if hi > lo:
+        span = hi - lo
+        return [0.05 + 0.94 * ((float(s) - lo) / span) for s in raw_scores]
+    # All scores in the collection are identical: map monotonically into [0.05, 0.99]
+    s0 = max(-20.0, min(20.0, float(raw_scores[0])))
+    mapped = 0.05 + 0.94 / (1.0 + math.exp(-s0))
+    return [mapped for _ in raw_scores]
+
+
 def load_jsonl_cases(
     path: Path,
     *,
@@ -562,25 +592,31 @@ def load_jsonl_cases(
                 continue
             row = json.loads(line)
             question = str(row["question"])
-            answers = row.get("answers") or [""]
-            gold_answer = str(answers[0])
+            raw_answers = row.get("answers") or [""]
+            cleaned_answers = tuple(str(a) for a in raw_answers if str(a).strip())
+            accepted_answers = cleaned_answers if cleaned_answers else ("",)
+            gold_answer = accepted_answers[0]
             ctxs = row.get("ctxs") or []
             if not ctxs:
                 continue
             query_vec = _deterministic_unit_vector(f"ext:{idx}:{question}")
-            docs: List[Document] = []
-            gold_pos = 1
-            gold_doc_id = f"ext_{idx}_d00"
+
+            raw_scores: List[float] = []
             for slot, ctx in enumerate(ctxs):
                 has_ans = bool(ctx.get("hasanswer", False))
                 raw_score = ctx.get("score")
-                score = (
+                raw_scores.append(
                     float(raw_score)
                     if raw_score is not None
                     else (0.92 if has_ans else max(0.2, 0.75 - 0.02 * slot))
                 )
-                # Normalize arbitrary retrieval scores to [0, 1] for vector alignment
-                norm_score = max(0.05, min(0.99, score if score <= 1.0 else score / 100.0))
+            norm_scores = _normalize_collection_scores(raw_scores)
+
+            docs: List[Document] = []
+            gold_pos = 1
+            gold_doc_id = f"ext_{idx}_d00"
+            for slot, (ctx, norm_score) in enumerate(zip(ctxs, norm_scores)):
+                has_ans = bool(ctx.get("hasanswer", False))
                 doc_id = f"ext_{idx}_d{slot:02d}"
                 if has_ans:
                     gold_pos = slot + 1
@@ -612,6 +648,7 @@ def load_jsonl_cases(
                     regime="external_jsonl",
                     documents=tuple(docs),
                     query_embedding=query_vec,
+                    accepted_answers=accepted_answers,
                 )
             )
     return cases

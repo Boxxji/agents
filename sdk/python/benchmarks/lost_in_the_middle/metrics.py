@@ -8,11 +8,18 @@ import re
 import string
 from collections import Counter
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 _ARTICLES_RE = re.compile(r"\b(a|an|the)\b", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_TABLE = str.maketrans("", "", string.punctuation)
+
+
+def _coerce_golds(gold: Union[str, Sequence[str]]) -> Tuple[str, ...]:
+    if isinstance(gold, str):
+        return (gold,)
+    golds = tuple(str(g) for g in gold)
+    return golds if golds else ("",)
 
 
 def normalize_answer(text: str) -> str:
@@ -23,21 +30,26 @@ def normalize_answer(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", no_articles).strip()
 
 
-def exact_match(prediction: str, gold: str) -> float:
-    """Return 1.0 if normalized prediction exactly matches normalized gold, else 0.0."""
-    return 1.0 if normalize_answer(prediction) == normalize_answer(gold) else 0.0
+def exact_match(prediction: str, gold: Union[str, Sequence[str]]) -> float:
+    """Return 1.0 if normalized prediction exactly matches any accepted gold answer, else 0.0."""
+    norm_pred = normalize_answer(prediction)
+    return max(
+        (1.0 if norm_pred == normalize_answer(g) else 0.0) for g in _coerce_golds(gold)
+    )
 
 
-def substring_match(prediction: str, gold: str) -> float:
-    """Return 1.0 if normalized gold appears in normalized prediction (Liu et al. TACL 2024 metric)."""
-    norm_gold = normalize_answer(gold)
-    if not norm_gold:
-        return 0.0
-    return 1.0 if norm_gold in normalize_answer(prediction) else 0.0
+def substring_match(prediction: str, gold: Union[str, Sequence[str]]) -> float:
+    """Return 1.0 if any accepted normalized gold appears in normalized prediction (Liu et al. TACL 2024 metric)."""
+    norm_pred = normalize_answer(prediction)
+    best = 0.0
+    for g in _coerce_golds(gold):
+        norm_gold = normalize_answer(g)
+        if norm_gold and norm_gold in norm_pred:
+            return 1.0
+    return best
 
 
-def token_f1(prediction: str, gold: str) -> float:
-    """Token-level F1 score between normalized prediction and gold answer."""
+def _single_token_f1(prediction: str, gold: str) -> float:
     pred_tokens = normalize_answer(prediction).split()
     gold_tokens = normalize_answer(gold).split()
     if not pred_tokens and not gold_tokens:
@@ -51,6 +63,11 @@ def token_f1(prediction: str, gold: str) -> float:
     precision = num_same / len(pred_tokens)
     recall = num_same / len(gold_tokens)
     return (2.0 * precision * recall) / (precision + recall)
+
+
+def token_f1(prediction: str, gold: Union[str, Sequence[str]]) -> float:
+    """Maximum token-level F1 score between normalized prediction and any accepted gold answer."""
+    return max(_single_token_f1(prediction, g) for g in _coerce_golds(gold))
 
 
 def percentile(values: Sequence[float], pct: float) -> float:

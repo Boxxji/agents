@@ -234,13 +234,18 @@ def audit_boundary_integrity(
 
 
 def _check_gold_retained(case: BenchmarkCase, final_prompt: str) -> bool:
-    """Check whether the gold answer-bearing fact survived intact in final_prompt."""
+    """Check whether any accepted gold answer-bearing fact survived intact in final_prompt."""
     gold_doc = next((d for d in case.documents if d.doc_id == case.gold_doc_id), None)
     if gold_doc is None:
         return False
 
-    # Require the gold answer string itself to be present in final_prompt
-    if case.gold_answer and case.gold_answer.lower() not in final_prompt.lower():
+    accepted = [a for a in case.all_accepted_answers if a]
+    if not accepted:
+        return False
+
+    # Require at least one accepted gold answer string to be present in final_prompt
+    prompt_low = final_prompt.lower()
+    if not any(ans.lower() in prompt_low for ans in accepted):
         return False
 
     # For structured cases with a target entity, require entity + answer to co-occur
@@ -248,10 +253,9 @@ def _check_gold_retained(case: BenchmarkCase, final_prompt: str) -> bool:
     segments = final_prompt.split("\n…TRIMMED…\n")
     if case.gold_entity:
         entity_low = case.gold_entity.lower()
-        ans_low = case.gold_answer.lower()
         for seg in segments:
             seg_low = seg.lower()
-            if entity_low in seg_low and ans_low in seg_low:
+            if entity_low in seg_low and any(ans.lower() in seg_low for ans in accepted):
                 # Verify they occur close enough (same passage, <= 220 chars apart)
                 e_pos = 0
                 while True:
@@ -259,15 +263,19 @@ def _check_gold_retained(case: BenchmarkCase, final_prompt: str) -> bool:
                     if idx == -1:
                         break
                     window = seg_low[max(0, idx - 80) : idx + 220]
-                    if ans_low in window:
+                    if any(ans.lower() in window for ans in accepted):
                         return True
                     e_pos = idx + len(entity_low)
         return False
 
-    # External JSONL fallback: first 48 chars of gold content + gold answer in same segment
-    anchor = gold_doc.content[:48].strip().lower()
-    ans_low = case.gold_answer.lower()
-    return any(anchor in seg.lower() and ans_low in seg.lower() for seg in segments)
+    # External JSONL fallback: first 48 chars of gold content (raw or escaped) + any accepted answer in same segment
+    raw_anchor = gold_doc.content[:48].strip()
+    anchors = [a for a in {raw_anchor.lower(), _escape_untrusted_text(raw_anchor).lower()} if a]
+    return any(
+        any(anc in seg.lower() for anc in anchors)
+        and any(ans.lower() in seg.lower() for ans in accepted)
+        for seg in segments
+    )
 
 
 def _apply_budget_enforcement(
@@ -277,8 +285,9 @@ def _apply_budget_enforcement(
     truncation_mode: str,
     model: str,
     chars_per_token: int = 4,
+    question: Optional[str] = None,
 ) -> Tuple[str, bool]:
-    """Enforce hard token budget using Hanzo's real AIConfig.trim_by_chars or tail clipping."""
+    """Enforce hard token budget using Hanzo's real AIConfig.trim_by_chars or question-preserving tail clipping."""
     ai_config = AIConfig(
         model=model,
         max_input_tokens=budget_tokens,
@@ -295,6 +304,14 @@ def _apply_budget_enforcement(
         trimmed = ai_config.trim_by_chars(prompt, limit=effective_limit, head_ratio=0.2)
         return trimmed, True
     if truncation_mode == "tail_clip":
+        # Reserve the exact question footer and tail-clip ONLY the evidence prefix
+        footer = f"\nQuestion: {question}\nAnswer:" if question is not None else ""
+        if footer and prompt.endswith(footer):
+            if len(footer) >= budget_chars:
+                return footer[:budget_chars], True
+            evidence_prefix = prompt[: -len(footer)]
+            allowed_evidence = budget_chars - len(footer)
+            return f"{evidence_prefix[:allowed_evidence]}{footer}", True
         return prompt[:budget_chars], True
 
     raise ValueError(f"Unknown truncation_mode: {truncation_mode!r}")
@@ -374,26 +391,63 @@ def pack_context(
             else:
                 dropped_ids.append(doc.doc_id)
 
-        # Ensure at least the top-priority document fits if budget is very tight
+        # Oversized top-document fallback: compute exact escaped block + prompt overhead
+        # so the rendered prompt strictly satisfies <= budget_chars with zero downstream splicing.
         if not selected and deduped:
             top_doc = deduped[0]
             dropped_ids = [d.doc_id for d in deduped[1:]]
-            available = max(64, budget_chars - used_chars - 120)
-            clipped_doc = Document(
-                doc_id=top_doc.doc_id,
-                title=top_doc.title,
-                content=top_doc.content[:available],
-                relevance_score=top_doc.relevance_score,
-                timestamp_order=top_doc.timestamp_order,
-                is_gold=top_doc.is_gold,
-                is_duplicate=top_doc.is_duplicate,
-                has_injection=top_doc.has_injection,
-                entity=top_doc.entity,
-                attribute=top_doc.attribute,
-                answer_value=top_doc.answer_value,
-                embedding=top_doc.embedding,
-            )
-            selected = [clipped_doc]
+
+            def _make_doc(title: str, content: str) -> Document:
+                return Document(
+                    doc_id=top_doc.doc_id,
+                    title=title,
+                    content=content,
+                    relevance_score=top_doc.relevance_score,
+                    timestamp_order=top_doc.timestamp_order,
+                    is_gold=top_doc.is_gold,
+                    is_duplicate=top_doc.is_duplicate,
+                    has_injection=top_doc.has_injection,
+                    entity=top_doc.entity,
+                    attribute=top_doc.attribute,
+                    answer_value=top_doc.answer_value,
+                    embedding=top_doc.embedding,
+                )
+
+            def _fits(title: str, content: str) -> bool:
+                rendered = _render_prompt(
+                    question=case.question,
+                    docs=[_make_doc(title, content)],
+                    isolated_nonce=boundary_nonce,
+                )
+                return len(rendered) <= budget_chars
+
+            cand_title = top_doc.title
+            if not _fits(cand_title, ""):
+                # Clip title first if even an empty-body block overflows budget_chars
+                lo_t, hi_t = 0, len(cand_title)
+                best_t = 0
+                while lo_t <= hi_t:
+                    mid_t = (lo_t + hi_t) // 2
+                    if _fits(cand_title[:mid_t], ""):
+                        best_t = mid_t
+                        lo_t = mid_t + 1
+                    else:
+                        hi_t = mid_t - 1
+                cand_title = cand_title[:best_t]
+
+            if _fits(cand_title, ""):
+                lo_c, hi_c = 0, len(top_doc.content)
+                best_c = 0
+                while lo_c <= hi_c:
+                    mid_c = (lo_c + hi_c) // 2
+                    if _fits(cand_title, top_doc.content[:mid_c]):
+                        best_c = mid_c
+                        lo_c = mid_c + 1
+                    else:
+                        hi_c = mid_c - 1
+                selected = [_make_doc(cand_title, top_doc.content[:best_c])]
+            else:
+                dropped_ids = [d.doc_id for d in deduped]
 
         ordered = bookend_arrange(selected)
         prompt = _render_prompt(
@@ -409,6 +463,7 @@ def pack_context(
         truncation_mode=truncation_mode,
         model=model,
         chars_per_token=chars_per_token,
+        question=case.question,
     )
     final_tokens = estimate_tokens(final_prompt, chars_per_token=chars_per_token)
     elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
