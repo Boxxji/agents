@@ -437,15 +437,47 @@ class ParetoBudget:
     max_accuracy_drop_from_best: float = 0.02
 
 
+class BudgetInfeasibleError(RuntimeError):
+    """Raised when no security-compliant candidate satisfies the hard Pareto budget."""
+
+    def __init__(
+        self,
+        category: TaskCategory,
+        budget: ParetoBudget,
+        *,
+        evaluated_count: int,
+        min_avg_tokens: Optional[float],
+        min_avg_cost_usd: Optional[float],
+        rejected_unsafe_candidates: Sequence[Dict[str, str]] = (),
+    ) -> None:
+        self.category = category
+        self.budget = budget
+        self.evaluated_count = evaluated_count
+        self.min_avg_tokens = min_avg_tokens
+        self.min_avg_cost_usd = min_avg_cost_usd
+        self.rejected_unsafe_candidates = list(rejected_unsafe_candidates)
+        detail = (
+            f"min_avg_tokens={min_avg_tokens:.2f} (cap={budget.max_avg_tokens_per_task}), "
+            f"min_avg_cost_usd={min_avg_cost_usd:.6f} (cap={budget.max_cost_per_task_usd:.6f})"
+            if min_avg_tokens is not None and min_avg_cost_usd is not None
+            else "no candidates remained after security filtering"
+        )
+        super().__init__(
+            f"No feasible candidate programs for category '{category}' under hard budget "
+            f"({detail}; evaluated={evaluated_count}, rejected_unsafe={len(self.rejected_unsafe_candidates)})"
+        )
+
+
 class ParetoCostAwareOptimizer:
     """
-    Multi-objective optimizer maximizing executable pass rate subject to token/cost caps.
+    Multi-objective optimizer maximizing executable pass rate subject to hard token/cost caps.
 
     Searches the joint space of:
       (security-verified instruction candidate) x (k in {0, 1} demonstrations) x
       (Enso model tier: fast mini model vs flagship coder model)
     and selects the budget-compliant Pareto-optimal configuration with minimum
     cost per passing task (within `max_accuracy_drop_from_best` of peak dev pass rate).
+    Raises `BudgetInfeasibleError` if no candidate satisfies the hard budget.
     """
 
     name = "pareto_cost_aware"
@@ -520,16 +552,22 @@ class ParetoCostAwareOptimizer:
                     )
 
         feasible = [e for e in evaluated if e["within_budget"]]
-        pool = feasible if feasible else evaluated
-        if not pool:
-            raise RuntimeError(
-                f"No feasible candidate programs for category '{category}'"
+        if not feasible:
+            min_tokens = min((e["avg_tokens"] for e in evaluated), default=None)
+            min_cost = min((e["avg_cost_usd"] for e in evaluated), default=None)
+            raise BudgetInfeasibleError(
+                category,
+                self.budget,
+                evaluated_count=len(evaluated),
+                min_avg_tokens=min_tokens,
+                min_avg_cost_usd=min_cost,
+                rejected_unsafe_candidates=rejected_unsafe,
             )
 
-        best_pass = max(e["dev_pass_rate"] for e in pool)
+        best_pass = max(e["dev_pass_rate"] for e in feasible)
         pareto_band = [
             e
-            for e in pool
+            for e in feasible
             if e["dev_pass_rate"] >= best_pass - self.budget.max_accuracy_drop_from_best
         ]
         # Within the top accuracy band, minimize cost per passing task, then avg tokens

@@ -12,6 +12,7 @@ from .dataset import CATEGORIES, BenchmarkDataset, assert_no_split_leakage, buil
 from .metrics import StrategyMetrics, aggregate_metrics, render_markdown_table
 from .optimizers import (
     BootstrapFewShotOptimizer,
+    BudgetInfeasibleError,
     InstructionSearchOptimizer,
     ParetoBudget,
     ParetoCostAwareOptimizer,
@@ -164,13 +165,47 @@ async def _run_ablations(
 
     # 2. Unguarded compression security ablation on injection_defense:
     #    Show what happens when a cost-capped optimizer disables the security boundary guard
-    #    under an aggressive 615-token cap (terse/baseline prompts fit, hardened boundary exceeds cap).
+    #    under an aggressive 615-token cap (terse/baseline prompts fit, hardened boundary exceeds cap)
+    #    versus keeping the security guard ON (explicitly reports BudgetInfeasibleError instead of
+    #    silently returning an over-budget candidate).
+    tight_budget = ParetoBudget(
+        max_avg_tokens_per_task=615,
+        max_cost_per_task_usd=0.0020,
+        max_accuracy_drop_from_best=0.0,
+    )
+    guarded_tight_opt = ParetoCostAwareOptimizer(
+        budget=tight_budget,
+        enforce_security_guard=True,
+        demo_counts=(0,),
+    )
+    try:
+        guarded_tight_prog = await guarded_tight_opt.compile(
+            category="injection_defense",
+            train_tasks=dataset.by_category("train", "injection_defense"),
+            dev_tasks=dataset.by_category("dev", "injection_defense"),
+            executor=executor,
+        )
+        guarded_tight_info: Dict[str, Any] = {
+            "compiled": True,
+            "infeasible": False,
+            "candidate_id": guarded_tight_prog.metadata.get("candidate_id"),
+            "dev_avg_tokens": guarded_tight_prog.metadata.get("dev_avg_tokens"),
+            "budget_max_avg_tokens": tight_budget.max_avg_tokens_per_task,
+        }
+    except BudgetInfeasibleError as exc:
+        guarded_tight_info = {
+            "compiled": False,
+            "infeasible": True,
+            "reason": str(exc),
+            "min_avg_tokens": round(exc.min_avg_tokens, 2)
+            if exc.min_avg_tokens is not None
+            else None,
+            "budget_max_avg_tokens": tight_budget.max_avg_tokens_per_task,
+            "rejected_unsafe_count": len(exc.rejected_unsafe_candidates),
+        }
+
     unguarded_opt = ParetoCostAwareOptimizer(
-        budget=ParetoBudget(
-            max_avg_tokens_per_task=615,
-            max_cost_per_task_usd=0.0020,
-            max_accuracy_drop_from_best=0.0,
-        ),
+        budget=tight_budget,
         enforce_security_guard=False,
         demo_counts=(0,),
     )
@@ -218,6 +253,7 @@ async def _run_ablations(
                 "injection_defense_rate_pct": guarded_cat.injection_defense_rate_pct,
                 "pass_rate_pct": guarded_cat.pass_rate_pct,
             },
+            "guarded_tight_cap": guarded_tight_info,
             "unguarded_compressed": {
                 "candidate_id": unguarded_prog.metadata.get("candidate_id"),
                 "injection_defense_rate_pct": unguarded_inj_rate,

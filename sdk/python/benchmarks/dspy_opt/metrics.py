@@ -291,8 +291,17 @@ def render_markdown_table(
                     "| Optimizer Mode | Candidate Selected | Injection Defense Rate (%) | Held-Out Pass Rate (%) |",
                     "| --- | --- | ---: | ---: |",
                     f"| `instruction_search` (security guard ON) | `{sec_abl['guarded']['candidate_id']}` | {sec_abl['guarded']['injection_defense_rate_pct']:.2f}% | {sec_abl['guarded']['pass_rate_pct']:.2f}% |",
-                    f"| `pareto_cost_aware` (security guard OFF, strict 615-tok cap) | `{sec_abl['unguarded_compressed']['candidate_id']}` | {sec_abl['unguarded_compressed']['injection_defense_rate_pct']:.2f}% | {sec_abl['unguarded_compressed']['pass_rate_pct']:.2f}% |",
                 ]
+            )
+            guarded_tight = sec_abl.get("guarded_tight_cap")
+            if guarded_tight and guarded_tight.get("infeasible"):
+                min_tok = guarded_tight.get("min_avg_tokens")
+                cap_tok = guarded_tight.get("budget_max_avg_tokens")
+                lines.append(
+                    f"| `pareto_cost_aware` (security guard ON, strict {cap_tok}-tok cap) | `INFEASIBLE (min {min_tok} tok > {cap_tok} cap)` | N/A | N/A |"
+                )
+            lines.append(
+                f"| `pareto_cost_aware` (security guard OFF, strict 615-tok cap) | `{sec_abl['unguarded_compressed']['candidate_id']}` | {sec_abl['unguarded_compressed']['injection_defense_rate_pct']:.2f}% | {sec_abl['unguarded_compressed']['pass_rate_pct']:.2f}% |"
             )
 
     lines.append("")

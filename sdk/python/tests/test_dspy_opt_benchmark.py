@@ -361,3 +361,134 @@ async def test_workflow_synthesis_executes_agent_workflow_steps_and_rejects_cycl
     ok, _, err = evaluate_task_output(complex_wf_task, cyclic_dag)
     assert ok is False
     assert err is not None and "cycle" in err
+
+
+def test_workflow_precedence_requires_transitive_depends_on_edges():
+    """Concurrent ungated nodes (depends_on=[]) must fail precedence even if listed in order."""
+    ds = build_dataset(seed=42)
+    complex_wf_task = next(
+        t
+        for t in ds.by_category("test", "workflow_synthesis")
+        if t.complexity == "complex"
+        and any(
+            pair == ["kai_policy_gate", "visor_sandbox_exec"]
+            or tuple(pair) == ("kai_policy_gate", "visor_sandbox_exec")
+            for pair in t.constraints.get("precedence", [])
+        )
+    )
+    req_tools = list(complex_wf_task.constraints["required_tools"])
+
+    # Put kai_policy_gate first in steps list, but leave all depends_on=[] (concurrent/ungated)
+    ordered_tools = ["kai_policy_gate"] + [t for t in req_tools if t != "kai_policy_gate"]
+    ungated_dag = {
+        "workflow_name": complex_wf_task.constraints["workflow_name"],
+        "has_checkpoint_gate": True,
+        "steps": [
+            {
+                "step_id": f"s{i + 1}",
+                "tool": tool,
+                "depends_on": [],
+                "est_latency_ms": 50,
+                "est_cost_millicents": 5,
+            }
+            for i, tool in enumerate(ordered_tools)
+        ],
+    }
+    ok, _, err = evaluate_task_output(complex_wf_task, ungated_dag)
+    assert ok is False
+    assert err is not None and "precedence violated" in err
+
+    # Verify transitive chain (s1 -> s2 -> s3 -> ...) satisfies all precedence pairs
+    # Build an explicit valid linear chain respecting every precedence constraint
+    precedence = [tuple(p) for p in complex_wf_task.constraints.get("precedence", [])]
+    # Topological sort tools using precedence constraints
+    remaining = list(req_tools)
+    chain: list[str] = []
+    while remaining:
+        progressed = False
+        for tool in list(remaining):
+            prereqs = [b for b, a in precedence if a == tool and b in remaining]
+            if not prereqs:
+                chain.append(tool)
+                remaining.remove(tool)
+                progressed = True
+        assert progressed, "Test constraints should be acyclic"
+
+    transitive_dag = {
+        "workflow_name": complex_wf_task.constraints["workflow_name"],
+        "has_checkpoint_gate": True,
+        "steps": [
+            {
+                "step_id": f"s{i + 1}",
+                "tool": tool,
+                "depends_on": [] if i == 0 else [f"s{i}"],
+                "est_latency_ms": 50,
+                "est_cost_millicents": 5,
+            }
+            for i, tool in enumerate(chain)
+        ],
+    }
+    ok_valid, _, err_valid = evaluate_task_output(complex_wf_task, transitive_dag)
+    assert ok_valid is True, f"Expected valid transitive chain to pass, got: {err_valid}"
+
+
+@pytest.mark.asyncio
+async def test_overlapping_executors_preserve_and_restore_global_llm_hook():
+    """A-acquire / B-acquire / A-release / B-release across two executors must not leak or prematurely restore."""
+    original_llm = agent_ai_module.llm
+    exec_a = HanzoProgramExecutor(seed=11)
+    exec_b = HanzoProgramExecutor(seed=22)
+
+    await exec_a._acquire_llm_hook()
+    proxy_after_a = agent_ai_module.llm
+    assert proxy_after_a is not original_llm
+
+    await exec_b._acquire_llm_hook()
+    assert agent_ai_module.llm is proxy_after_a
+
+    # Releasing A while B is still active must keep the proxy installed
+    await exec_a._release_llm_hook()
+    assert agent_ai_module.llm is proxy_after_a
+
+    # Releasing B must restore the exact original LLM object (not a stale proxy)
+    await exec_b._release_llm_hook()
+    assert agent_ai_module.llm is original_llm
+
+
+@pytest.mark.asyncio
+async def test_pareto_optimizer_raises_budget_infeasible_error_on_tight_guarded_cap():
+    """Guarded ParetoCostAwareOptimizer must raise BudgetInfeasibleError when no candidate fits the hard cap."""
+    from benchmarks.dspy_opt import BudgetInfeasibleError
+
+    ds = build_dataset(seed=42)
+    ex = HanzoProgramExecutor(seed=42)
+    tight_opt = ParetoCostAwareOptimizer(
+        budget=ParetoBudget(
+            max_avg_tokens_per_task=615,
+            max_cost_per_task_usd=0.0020,
+            max_accuracy_drop_from_best=0.0,
+        ),
+        enforce_security_guard=True,
+        demo_counts=(0,),
+    )
+
+    with pytest.raises(BudgetInfeasibleError) as exc_info:
+        await tight_opt.compile(
+            category="injection_defense",
+            train_tasks=ds.by_category("train", "injection_defense"),
+            dev_tasks=ds.by_category("dev", "injection_defense"),
+            executor=ex,
+        )
+
+    err = exc_info.value
+    assert err.category == "injection_defense"
+    assert err.min_avg_tokens is not None and err.min_avg_tokens > 615
+    assert len(err.rejected_unsafe_candidates) >= 3
+
+    # Also verify full benchmark runner records the guarded tight-cap infeasibility cleanly
+    report = await run_benchmark(seed=42)
+    sec_abl = report.ablations["unguarded_compression_security"]
+    assert sec_abl["guarded_tight_cap"]["compiled"] is False
+    assert sec_abl["guarded_tight_cap"]["infeasible"] is True
+    assert sec_abl["guarded_tight_cap"]["min_avg_tokens"] > 615
+

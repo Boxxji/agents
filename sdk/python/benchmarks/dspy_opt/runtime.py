@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import re
+import threading
 import time
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -645,6 +646,12 @@ class _BenchmarkAgent:
         self._current_execution_context = None
 
 
+_LLM_HOOK_LOCK = threading.Lock()
+_LLM_HOOK_ACTIVE_CALLS = 0
+_LLM_HOOK_SAVED_LLM: Any = None
+_LLM_HOOK_PROXY = _ContextRoutedLLM()
+
+
 class HanzoProgramExecutor:
     """
     Executes compiled prompt/workflow programs over real Hanzo Python SDK components:
@@ -658,23 +665,24 @@ class HanzoProgramExecutor:
         self.seed = seed
         self.provider = SimulatedEnsoZenProvider(seed=seed)
         self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
-        self._llm_lock = asyncio.Lock()
-        self._active_calls = 0
-        self._saved_llm: Any = None
 
     async def _acquire_llm_hook(self) -> None:
-        async with self._llm_lock:
-            if self._active_calls == 0:
-                self._saved_llm = agent_ai_module.llm
-                agent_ai_module.llm = _ContextRoutedLLM()
-            self._active_calls += 1
+        global _LLM_HOOK_ACTIVE_CALLS, _LLM_HOOK_SAVED_LLM
+        with _LLM_HOOK_LOCK:
+            if _LLM_HOOK_ACTIVE_CALLS == 0:
+                _LLM_HOOK_SAVED_LLM = agent_ai_module.llm
+                agent_ai_module.llm = _LLM_HOOK_PROXY
+            _LLM_HOOK_ACTIVE_CALLS += 1
 
     async def _release_llm_hook(self) -> None:
-        async with self._llm_lock:
-            self._active_calls -= 1
-            if self._active_calls == 0 and self._saved_llm is not None:
-                agent_ai_module.llm = self._saved_llm
-                self._saved_llm = None
+        global _LLM_HOOK_ACTIVE_CALLS, _LLM_HOOK_SAVED_LLM
+        with _LLM_HOOK_LOCK:
+            if _LLM_HOOK_ACTIVE_CALLS <= 0:
+                return
+            _LLM_HOOK_ACTIVE_CALLS -= 1
+            if _LLM_HOOK_ACTIVE_CALLS == 0:
+                agent_ai_module.llm = _LLM_HOOK_SAVED_LLM
+                _LLM_HOOK_SAVED_LLM = None
 
     async def execute_task(
         self, program: CompiledProgram, task: TaskSpec

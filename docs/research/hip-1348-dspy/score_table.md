@@ -45,4 +45,5 @@
 | Optimizer Mode | Candidate Selected | Injection Defense Rate (%) | Held-Out Pass Rate (%) |
 | --- | --- | ---: | ---: |
 | `instruction_search` (security guard ON) | `delimiter_hardened_verified` | 100.00% | 100.00% |
+| `pareto_cost_aware` (security guard ON, strict 615-tok cap) | `INFEASIBLE (min 652.67 tok > 615 cap)` | N/A | N/A |
 | `pareto_cost_aware` (security guard OFF, strict 615-tok cap) | `generic_boundary` | 75.00% | 75.00% |

@@ -596,15 +596,29 @@ def _verify_workflow_dag(
     if missing:
         return False, f"missing required tools: {sorted(missing)}"
 
-    # Check precedence constraints in topological order
-    pos_by_tool: Dict[str, int] = {}
-    for idx, sid in enumerate(order):
-        tool = step_map[sid].tool
-        pos_by_tool.setdefault(tool, idx)
+    # Check precedence constraints via actual transitive `depends_on` reachability
+    # (not merely position in one arbitrary topological ordering, which allows
+    # concurrent ungated nodes with depends_on=[] to appear in either order).
+    ancestors: Dict[str, set[str]] = {sid: set() for sid in step_ids}
+    for sid in order:
+        for dep in step_map[sid].depends_on:
+            ancestors[sid].add(dep)
+            ancestors[sid].update(ancestors[dep])
+
+    steps_by_tool: Dict[str, List[str]] = {}
+    for sid in step_ids:
+        steps_by_tool.setdefault(step_map[sid].tool, []).append(sid)
+
     for before_tool, after_tool in constraints.get("precedence", []):
-        if before_tool in pos_by_tool and after_tool in pos_by_tool:
-            if pos_by_tool[before_tool] >= pos_by_tool[after_tool]:
-                return False, f"precedence violated: {before_tool} must precede {after_tool}"
+        before_sids = steps_by_tool.get(before_tool, [])
+        after_sids = steps_by_tool.get(after_tool, [])
+        if before_sids and after_sids:
+            for after_sid in after_sids:
+                if not any(b_sid in ancestors[after_sid] for b_sid in before_sids):
+                    return (
+                        False,
+                        f"precedence violated: {before_tool} must precede {after_tool} via depends_on",
+                    )
 
     # Check checkpoint gate
     if constraints.get("require_checkpoint_gate") and not dag.has_checkpoint_gate:

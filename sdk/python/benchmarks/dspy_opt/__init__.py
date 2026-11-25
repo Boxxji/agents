@@ -15,6 +15,7 @@ from .metrics import (
 )
 from .optimizers import (
     BootstrapFewShotOptimizer,
+    BudgetInfeasibleError,
     InstructionSearchOptimizer,
     ParetoCostAwareOptimizer,
     ZeroShotBaselineOptimizer,
@@ -37,6 +38,7 @@ __all__ = [
     "BenchmarkDataset",
     "BenchmarkReport",
     "BootstrapFewShotOptimizer",
+    "BudgetInfeasibleError",
     "CATEGORIES",
     "CategoryMetrics",
     "CompiledProgram",
