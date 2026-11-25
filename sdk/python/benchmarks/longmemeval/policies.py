@@ -91,6 +91,11 @@ class BaseMemoryPolicy(ABC):
     name: str = ""
     description: str = ""
 
+    @property
+    def effective_top_k(self) -> Optional[int]:
+        """Actual vector retrieval top_k used by this policy (None for KV-only policies)."""
+        return None
+
     @abstractmethod
     async def ingest(self, client: InMemoryHanzoAgentsClient, turn: MemoryTurn) -> None:
         """Persist a single turn via the Hanzo SDK memory interface."""
@@ -253,9 +258,13 @@ class VectorTopKPolicy(BaseMemoryPolicy):
     name = "vector_top_k"
     description = "Unthresholded cosine top-K vector search via MemoryClient.set_vector/similarity_search."
 
-    def __init__(self, embedder: DeterministicHashEmbedder, top_k: int = 5) -> None:
+    def __init__(self, embedder: DeterministicHashEmbedder, top_k: int = 8) -> None:
         self.embedder = embedder
         self.top_k = top_k
+
+    @property
+    def effective_top_k(self) -> Optional[int]:
+        return self.top_k
 
     @staticmethod
     def _doc_text(turn: MemoryTurn) -> str:
@@ -388,6 +397,10 @@ class VectorThresholdedPolicy(BaseMemoryPolicy):
         self.min_score = min_score
         self.top_k = top_k
 
+    @property
+    def effective_top_k(self) -> Optional[int]:
+        return self.top_k
+
     @staticmethod
     def _doc_text(turn: MemoryTurn) -> str:
         return f"{turn.entity} {turn.attribute} {turn.statement}"
@@ -450,7 +463,11 @@ class VectorThresholdedPolicy(BaseMemoryPolicy):
         global_hits = await iface.global_scope.similarity_search(
             q_vec, top_k=self.top_k
         )
-        all_hits = [*actor_hits, *global_hits]
+        all_hits = sorted(
+            [*actor_hits, *global_hits],
+            key=lambda h: float(h.get("score", 0.0)),
+            reverse=True,
+        )[: self.top_k]
         top_score = max((float(h.get("score", 0.0)) for h in all_hits), default=0.0)
 
         passed = [
@@ -544,16 +561,24 @@ class HybridScopePolicy(BaseMemoryPolicy):
         "over existing Hanzo MemoryInterface/ScopedMemoryClient/GlobalMemoryClient APIs."
     )
 
+    _UNSET: Any = object()
+
     def __init__(
         self,
         embedder: DeterministicHashEmbedder,
         *,
         min_score: float = 0.45,
         verified_confidence: float = 0.80,
+        top_k: int = 8,
     ) -> None:
         self.embedder = embedder
         self.min_score = min_score
         self.verified_confidence = verified_confidence
+        self.top_k = top_k
+
+    @property
+    def effective_top_k(self) -> Optional[int]:
+        return self.top_k
 
     @staticmethod
     def _scope_client(iface: MemoryInterface, scope: str, turn: MemoryTurn) -> Any:
@@ -564,6 +589,51 @@ class HybridScopePolicy(BaseMemoryPolicy):
         if scope == "actor":
             return iface.actor(turn.actor_id)
         return iface.global_scope
+
+    @staticmethod
+    def _tombstone_key(key: str) -> str:
+        return f"tombstone:{key}"
+
+    @staticmethod
+    def _is_suppressed_by_tombstone(
+        record_timestamp: Any, tombstone_ts: Optional[str]
+    ) -> bool:
+        if not tombstone_ts:
+            return False
+        return str(record_timestamp or "") <= tombstone_ts
+
+    async def _write_tombstone(
+        self, scope_client: Any, key: str, turn: MemoryTurn
+    ) -> None:
+        tombstone_key = self._tombstone_key(key)
+        existing = await scope_client.get(tombstone_key, default=None)
+        existing_ts = (
+            str(existing.get("timestamp", "")) if isinstance(existing, dict) else ""
+        )
+        if not existing_ts or turn.timestamp >= existing_ts:
+            await scope_client.set(
+                tombstone_key,
+                {
+                    "entity": turn.entity,
+                    "attribute": turn.attribute,
+                    "timestamp": turn.timestamp,
+                    "scope": turn.scope,
+                    "turn_id": turn.turn_id,
+                },
+            )
+
+    async def _get_tombstone_timestamp(
+        self, iface: MemoryInterface, query: MemoryQuery, key: str
+    ) -> Optional[str]:
+        tombstone_key = self._tombstone_key(key)
+        timestamps: List[str] = []
+        for sc_client in (iface.actor(query.actor_id), iface.global_scope):
+            rec = await sc_client.get(tombstone_key, default=None)
+            if isinstance(rec, dict):
+                ts = str(rec.get("timestamp", ""))
+                if ts:
+                    timestamps.append(ts)
+        return max(timestamps) if timestamps else None
 
     async def ingest(self, client: InMemoryHanzoAgentsClient, turn: MemoryTurn) -> None:
         iface = build_memory_interface(
@@ -578,13 +648,28 @@ class HybridScopePolicy(BaseMemoryPolicy):
         vec_target: Any = iface.global_scope if turn.scope == "global" else actor_client
 
         if turn.action == "delete":
-            # Delete KV record from target scope + actor scope + event history + scoped vectors.
-            for sc_client in (target, actor_client):
+            # Invalidate superseded KV copies across all applicable scopes so stale
+            # workflow/session/actor copies cannot resurrect after deletion.
+            delete_clients: List[Any] = [
+                iface.workflow(turn.workflow_id),
+                iface.session(turn.session_id),
+                actor_client,
+            ]
+            if turn.scope == "global":
+                delete_clients.append(iface.global_scope)
+            for sc_client in delete_clients:
                 try:
                     await sc_client.delete(key)
                 except TransportHTTPError as exc:
                     if exc.status_code != 404:
                         raise
+
+            # Persist a deletion tombstone timestamp so earlier copies in other
+            # sessions/workflows (or global defaults) are suppressed during recall.
+            await self._write_tombstone(actor_client, key, turn)
+            if turn.scope == "global":
+                await self._write_tombstone(iface.global_scope, key, turn)
+
             event_prefix = f"event:{key}:"
             for existing_key in await actor_client.list_keys():
                 if existing_key.startswith(event_prefix):
@@ -593,13 +678,21 @@ class HybridScopePolicy(BaseMemoryPolicy):
                     except TransportHTTPError as exc:
                         if exc.status_code != 404:
                             raise
-            vec_hits = await vec_target.similarity_search(
-                self.embedder.embed(f"{turn.entity} {turn.attribute}"),
-                top_k=50,
-                filters={"entity": turn.entity, "attribute": turn.attribute},
+
+            vec_targets: List[Any] = (
+                [iface.global_scope, actor_client]
+                if turn.scope == "global"
+                else [vec_target]
             )
-            for hit in vec_hits:
-                await vec_target.delete_vector(str(hit["key"]))
+            q_vec = self.embedder.embed(f"{turn.entity} {turn.attribute}")
+            for vt in vec_targets:
+                vec_hits = await vt.similarity_search(
+                    q_vec,
+                    top_k=50,
+                    filters={"entity": turn.entity, "attribute": turn.attribute},
+                )
+                for hit in vec_hits:
+                    await vt.delete_vector(str(hit["key"]))
             return
 
         payload = {
@@ -629,8 +722,18 @@ class HybridScopePolicy(BaseMemoryPolicy):
         )
 
     async def _collect_scope_records(
-        self, iface: MemoryInterface, query: MemoryQuery, key: str
+        self,
+        iface: MemoryInterface,
+        query: MemoryQuery,
+        key: str,
+        *,
+        tombstone_ts: Any = _UNSET,
     ) -> List[Tuple[str, Dict[str, Any]]]:
+        effective_tombstone = (
+            await self._get_tombstone_timestamp(iface, query, key)
+            if tombstone_ts is self._UNSET
+            else tombstone_ts
+        )
         candidates: List[Tuple[str, Any]] = [
             ("workflow", iface.workflow(query.workflow_id)),
             ("session", iface.session(query.session_id)),
@@ -641,6 +744,10 @@ class HybridScopePolicy(BaseMemoryPolicy):
         for scope_name, sc_client in candidates:
             rec = await sc_client.get(key, default=None)
             if isinstance(rec, dict) and rec.get("value"):
+                if self._is_suppressed_by_tombstone(
+                    rec.get("timestamp"), effective_tombstone
+                ):
+                    continue
                 found.append((scope_name, rec))
         return found
 
@@ -655,6 +762,7 @@ class HybridScopePolicy(BaseMemoryPolicy):
         )
         key = canonical_key(query.entity, query.attribute)
         actor_client = iface.actor(query.actor_id)
+        tombstone_ts = await self._get_tombstone_timestamp(iface, query, key)
 
         # 1. Temporal ordering queries: reconstruct chronological sequence from event keys
         if query.query_type == "sequence":
@@ -665,6 +773,10 @@ class HybridScopePolicy(BaseMemoryPolicy):
             for ek in event_keys:
                 rec = await actor_client.get(ek, default=None)
                 if isinstance(rec, dict) and rec.get("value"):
+                    if self._is_suppressed_by_tombstone(
+                        rec.get("timestamp"), tombstone_ts
+                    ):
+                        continue
                     records.append(rec)
             if records:
                 records.sort(
@@ -686,7 +798,9 @@ class HybridScopePolicy(BaseMemoryPolicy):
 
         # 2. Structured multi-scope inspection (prevents stale session/workflow shadowing
         #    and detects cross-scope contradictions explicitly).
-        scoped_records = await self._collect_scope_records(iface, query, key)
+        scoped_records = await self._collect_scope_records(
+            iface, query, key, tombstone_ts=tombstone_ts
+        )
         if scoped_records:
             distinct_vals = {str(rec["value"]) for _, rec in scoped_records}
             contradiction = len(distinct_vals) > 1
@@ -727,9 +841,13 @@ class HybridScopePolicy(BaseMemoryPolicy):
 
         # 3. Fallback to thresholded vector search (handles paraphrases / unkeyed facts)
         q_vec = self.embedder.embed(f"{query.entity} {query.attribute} {query.question}")
-        actor_hits = await actor_client.similarity_search(q_vec, top_k=6)
-        global_hits = await iface.global_scope.similarity_search(q_vec, top_k=6)
-        all_hits = [*actor_hits, *global_hits]
+        actor_hits = await actor_client.similarity_search(q_vec, top_k=self.top_k)
+        global_hits = await iface.global_scope.similarity_search(q_vec, top_k=self.top_k)
+        all_hits = sorted(
+            [*actor_hits, *global_hits],
+            key=lambda h: float(h.get("score", 0.0)),
+            reverse=True,
+        )[: self.top_k]
         top_score = max((float(h.get("score", 0.0)) for h in all_hits), default=0.0)
         passed = [
             h
@@ -737,6 +855,9 @@ class HybridScopePolicy(BaseMemoryPolicy):
             if float(h.get("score", 0.0)) >= self.min_score
             and (h.get("metadata") or {}).get("entity") == query.entity
             and (h.get("metadata") or {}).get("attribute") == query.attribute
+            and not self._is_suppressed_by_tombstone(
+                (h.get("metadata") or {}).get("timestamp"), tombstone_ts
+            )
         ]
         if not passed:
             return PolicyRecallResult(
@@ -766,13 +887,13 @@ def build_default_policies(
     embedder: DeterministicHashEmbedder,
     *,
     min_score: float = 0.45,
-    top_k: int = 5,
+    top_k: int = 8,
 ) -> List[BaseMemoryPolicy]:
     """Instantiate the canonical set of 5 evaluated Hanzo memory policies."""
     return [
         KVScopedPolicy(),
         KVFallbackChainPolicy(),
         VectorTopKPolicy(embedder=embedder, top_k=top_k),
-        VectorThresholdedPolicy(embedder=embedder, min_score=min_score, top_k=max(top_k, 8)),
-        HybridScopePolicy(embedder=embedder, min_score=min_score),
+        VectorThresholdedPolicy(embedder=embedder, min_score=min_score, top_k=top_k),
+        HybridScopePolicy(embedder=embedder, min_score=min_score, top_k=top_k),
     ]

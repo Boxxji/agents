@@ -81,6 +81,7 @@ async def evaluate_policy(
         description=policy.description,
         outcomes=outcomes,
         api_calls=total_api_calls,
+        effective_top_k=policy.effective_top_k,
     )
 
 
@@ -88,7 +89,7 @@ async def run_benchmark(
     *,
     seed: int = 1347,
     min_score: float = 0.45,
-    top_k: int = 5,
+    top_k: int = 8,
     embedding_dim: int = 128,
     policy_names: Optional[Sequence[str]] = None,
     categories: Optional[Sequence[str]] = None,
@@ -131,6 +132,7 @@ async def run_benchmark(
             "seed": seed,
             "min_score": min_score,
             "top_k": top_k,
+            "effective_top_k_by_policy": {p.name: p.effective_top_k for p in policies},
             "embedding_dim": embedding_dim,
             "categories": list(categories) if categories else list(ALL_CATEGORIES),
             "total_cases": len(cases),
@@ -175,6 +177,7 @@ async def run_threshold_sweep(
         rows.append(
             {
                 "min_score": thr,
+                "effective_top_k": pol.effective_top_k,
                 "exact_match": sc.exact_match,
                 "recall_at_k": sc.recall_at_k,
                 "abstention_precision": sc.abstention_precision,
@@ -205,8 +208,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--top-k",
         type=int,
-        default=5,
-        help="Top-K parameter for vector similarity_search (default: 5)",
+        default=8,
+        help="Top-K parameter for vector similarity_search (default: 8)",
     )
     parser.add_argument(
         "--embedding-dim",
@@ -268,7 +271,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         report["threshold_sweep"] = asyncio.run(
             run_threshold_sweep(
                 seed=args.seed,
-                top_k=max(args.top_k, 8),
+                top_k=args.top_k,
                 embedding_dim=args.embedding_dim,
                 categories=args.categories,
             )

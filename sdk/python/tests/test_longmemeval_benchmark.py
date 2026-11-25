@@ -624,3 +624,158 @@ def test_cli_filtered_categories_sweep_uses_same_filtered_cases(tmp_path: Path):
     assert filtered_at_0 == direct_at_0
     assert filtered_at_0["exact_match"] < full_at_0["exact_match"]
 
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case_id", ["ku-07", "ku-09"])
+async def test_hybrid_policy_delete_suppresses_stale_scoped_records(case_id: str):
+    """
+    Deleting ku-07 (stale session copy `us-east-1`) or ku-09 (stale workflow copy
+    `2026-03-01`) via an actor-scoped delete—even from a different session/workflow—
+    must abstain and NEVER resurrect the superseded scoped record.
+    """
+    from benchmarks.longmemeval.dataset import MemoryTurn
+    from benchmarks.longmemeval.policies import HybridScopePolicy
+
+    cases = build_longmemeval_dataset(seed=1347, categories=["knowledge_updates"])
+    case = next(c for c in cases if c.case_id == case_id)
+
+    embedder = DeterministicHashEmbedder(dim=128, seed=1347)
+    policy = HybridScopePolicy(embedder=embedder, min_score=0.45)
+
+    # Test 1: Delete issued from the same session/workflow
+    client_same = InMemoryHanzoAgentsClient()
+    for turn in case.turns:
+        await policy.ingest(client_same, turn)
+
+    before_same = await policy.recall(client_same, case.query)
+    assert not before_same.abstained
+    assert before_same.answer == case.expected_answer
+
+    await policy.ingest(
+        client_same,
+        MemoryTurn(
+            turn_id=f"{case_id}-delete-same",
+            actor_id=case.query.actor_id,
+            session_id=case.query.session_id,
+            workflow_id=case.query.workflow_id,
+            scope="actor",
+            timestamp="2026-09-01T00:00:00Z",
+            entity=case.query.entity,
+            attribute=case.query.attribute,
+            value="",
+            statement=f"Delete {case.query.entity} {case.query.attribute}.",
+            action="delete",
+        ),
+    )
+    after_same = await policy.recall(client_same, case.query)
+    assert after_same.abstained is True
+    assert after_same.answer is None
+    assert after_same.answer not in case.stale_values
+
+    # Test 2: Delete issued from a DIFFERENT session/workflow so the stale
+    # session/workflow KV entry still exists physically, verifying tombstone suppression.
+    client_diff = InMemoryHanzoAgentsClient()
+    for turn in case.turns:
+        await policy.ingest(client_diff, turn)
+
+    await policy.ingest(
+        client_diff,
+        MemoryTurn(
+            turn_id=f"{case_id}-delete-other-ctx",
+            actor_id=case.query.actor_id,
+            session_id="sess-different-delete-ctx",
+            workflow_id="wf-different-delete-ctx",
+            scope="actor",
+            timestamp="2026-09-01T00:00:00Z",
+            entity=case.query.entity,
+            attribute=case.query.attribute,
+            value="",
+            statement=f"Delete {case.query.entity} {case.query.attribute}.",
+            action="delete",
+        ),
+    )
+    after_diff = await policy.recall(client_diff, case.query)
+    assert after_diff.abstained is True
+    assert after_diff.answer is None
+
+    # Test 3: A newer write strictly after the tombstone timestamp is visible again.
+    await policy.ingest(
+        client_diff,
+        MemoryTurn(
+            turn_id=f"{case_id}-post-delete-write",
+            actor_id=case.query.actor_id,
+            session_id=case.query.session_id,
+            workflow_id=case.query.workflow_id,
+            scope="actor",
+            timestamp="2026-09-02T00:00:00Z",
+            entity=case.query.entity,
+            attribute=case.query.attribute,
+            value="recreated-value",
+            statement=f"Recreated {case.query.entity} {case.query.attribute} is recreated-value.",
+            action="set",
+        ),
+    )
+    recreated = await policy.recall(client_diff, case.query)
+    assert recreated.abstained is False
+    assert recreated.answer == "recreated-value"
+
+
+@pytest.mark.functional
+def test_cli_honors_top_k_1_without_clamping_and_records_effective_top_k(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """
+    Passing --top-k 1 must genuinely search with top_k=1 in VectorThresholdedPolicy
+    (no silent clamp to 8) and record effective_top_k == 1 in JSON output.
+    """
+    observed_top_ks: list[int] = []
+    orig_handle_search = ControlPlaneMemoryTransport._handle_vector_search
+
+    def _spy_vector_search(self, payload, headers):
+        observed_top_ks.append(int(payload.get("top_k", -1)))
+        return orig_handle_search(self, payload, headers)
+
+    monkeypatch.setattr(
+        ControlPlaneMemoryTransport,
+        "_handle_vector_search",
+        _spy_vector_search,
+    )
+
+    out_json = tmp_path / "topk1.json"
+    rc = cli_main(
+        [
+            "--seed",
+            "1347",
+            "--categories",
+            "temporal_ordering",
+            "--policies",
+            "vector_thresholded",
+            "kv_scoped",
+            "--top-k",
+            "1",
+            "--sweep-thresholds",
+            "--output",
+            str(out_json),
+            "--quiet",
+        ]
+    )
+    assert rc == 0
+    # Every similarity_search during recall (and sweep) must have used top_k=1
+    assert observed_top_ks
+    assert set(observed_top_ks) == {1}
+
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["config"]["top_k"] == 1
+    assert payload["config"]["effective_top_k_by_policy"] == {
+        "kv_scoped": None,
+        "vector_thresholded": 1,
+    }
+    by_name = {row["policy_name"]: row for row in payload["scores"]}
+    assert by_name["vector_thresholded"]["effective_top_k"] == 1
+    assert by_name["kv_scoped"]["effective_top_k"] is None
+    assert all(row["effective_top_k"] == 1 for row in payload["threshold_sweep"])
+    # With top_k=1, temporal_ordering (which needs multi-event sequences) cannot succeed
+    assert by_name["vector_thresholded"]["temporal_order_accuracy"] == 0.0
+
+

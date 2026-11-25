@@ -90,6 +90,7 @@ class PolicyScore:
     latency_mean_ms: float
     avg_retrieval_tokens: float
     total_retrieval_tokens: int
+    effective_top_k: Optional[int] = None
     api_calls: Dict[str, int] = field(default_factory=dict)
     by_category: Dict[str, CategoryScore] = field(default_factory=dict)
     outcomes: List[CaseOutcome] = field(default_factory=list)
@@ -161,6 +162,8 @@ def aggregate_policy_score(
     description: str,
     outcomes: List[CaseOutcome],
     api_calls: Dict[str, int],
+    *,
+    effective_top_k: Optional[int] = None,
 ) -> PolicyScore:
     """Aggregate case outcomes into a `PolicyScore` summary."""
     total = len(outcomes)
@@ -242,6 +245,7 @@ def aggregate_policy_score(
         latency_mean_ms=round(sum(latencies) / total, 4) if total else 0.0,
         avg_retrieval_tokens=round(total_tokens / total, 2) if total else 0.0,
         total_retrieval_tokens=total_tokens,
+        effective_top_k=effective_top_k,
         api_calls=dict(api_calls),
         by_category=by_category,
         outcomes=outcomes,
