@@ -11,6 +11,7 @@ export * from './did/DidManager.js';
 export * from './mcp/MCPClient.js';
 export * from './mcp/MCPClientRegistry.js';
 export * from './mcp/MCPToolRegistrar.js';
+export * from './memory/AtomicFactMemory.js';
 export * from './memory/BaseMemory.js';
 export * from './memory/MemoryBackend.js';
 export * from './memory/MemoryClient.js';

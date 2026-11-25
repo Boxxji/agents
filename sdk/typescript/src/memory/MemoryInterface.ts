@@ -1,4 +1,5 @@
 import type { AIClient, AIEmbeddingOptions } from '../ai/AIClient.js';
+import { AtomicFactMemory, type FactDecisionModel } from './AtomicFactMemory.js';
 import type { MemoryScope } from '../types/agent.js';
 import type { MemoryBackend } from './MemoryBackend.js';
 import type { MemoryRequestMetadata, VectorSearchOptions } from './MemoryClient.js';
@@ -189,6 +190,25 @@ export class MemoryInterface {
 
   onEvent(handler: MemoryWatchHandler) {
     this.eventClient?.onEvent(handler);
+  }
+
+  facts(options?: {
+    decisionModel?: FactDecisionModel;
+    reviewConfidenceThreshold?: number;
+    semanticDuplicateThreshold?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new AtomicFactMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      decisionModel: options?.decisionModel,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      reviewConfidenceThreshold: options?.reviewConfidenceThreshold,
+      semanticDuplicateThreshold: options?.semanticDuplicateThreshold,
+      embeddingOptions: options?.embeddingOptions
+    });
   }
 
   private cloneWithScope(scope: MemoryScope, scopeId?: string) {
