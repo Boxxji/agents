@@ -492,3 +492,122 @@ async def test_pareto_optimizer_raises_budget_infeasible_error_on_tight_guarded_
     assert sec_abl["guarded_tight_cap"]["infeasible"] is True
     assert sec_abl["guarded_tight_cap"]["min_avg_tokens"] > 615
 
+
+@pytest.mark.asyncio
+async def test_concurrent_non_benchmark_call_delegates_to_original_backend(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    While a benchmark call holds the module-level `agent_ai_module.llm` proxy,
+    an ordinary concurrent `AgentAI.ai()` call with no benchmark ContextVar bound
+    must delegate seamlessly to the saved original LLM backend instead of raising.
+    """
+    from types import SimpleNamespace
+    from benchmarks.dspy_opt.runtime import _BenchmarkAgent
+
+    backend_calls: list[dict] = []
+    bench_entered = asyncio.Event()
+    allow_bench_finish = asyncio.Event()
+
+    class _SentinelBackend:
+        class utils:
+            @staticmethod
+            def token_counter(model: str, messages: list[dict]) -> int:
+                return 17
+
+            @staticmethod
+            def trim_messages(messages: list[dict], model: str, max_tokens: int) -> list[dict]:
+                return messages
+
+        custom_marker = "original-backend-marker"
+
+        async def acompletion(self, **kwargs):
+            backend_calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="ordinary-backend-response")
+                    )
+                ]
+            )
+
+    sentinel_backend = _SentinelBackend()
+    monkeypatch.setattr(agent_ai_module, "llm", sentinel_backend)
+
+    ds = build_dataset(seed=42)
+    task = ds.by_category("dev", "json_extraction")[0]
+    ex = HanzoProgramExecutor(seed=42)
+    orig_provider_acompletion = ex.provider.acompletion
+
+    async def _slow_provider_acompletion(**kwargs):
+        bench_entered.set()
+        await allow_bench_finish.wait()
+        return await orig_provider_acompletion(**kwargs)
+
+    monkeypatch.setattr(ex.provider, "acompletion", _slow_provider_acompletion)
+    program = await ZeroShotBaselineOptimizer().compile(
+        "json_extraction",
+        ds.by_category("train", "json_extraction"),
+        ds.by_category("dev", "json_extraction"),
+        ex,
+    )
+
+    async def _run_benchmark_call():
+        return await ex.execute_task(program, task)
+
+    async def _run_ordinary_call():
+        await bench_entered.wait()
+        try:
+            # Confirm proxy is installed while benchmark call is in flight
+            assert agent_ai_module.llm is not sentinel_backend
+            assert agent_ai_module.llm.custom_marker == "original-backend-marker"
+            ordinary_agent = _BenchmarkAgent(
+                ai_config=AIConfig(model="openai/gpt-4o-mini", enable_rate_limit_retry=False)
+            )
+            ordinary_ai = agent_ai_module.AgentAI(ordinary_agent)
+            return await ordinary_ai.ai(system="You are helpful.", user="Ping outside benchmark")
+        finally:
+            allow_bench_finish.set()
+
+    bench_res, ordinary_resp = await asyncio.gather(
+        _run_benchmark_call(), _run_ordinary_call()
+    )
+
+    assert bench_res.task_id == task.task_id
+    assert len(backend_calls) == 1
+    assert getattr(ordinary_resp, "text", ordinary_resp) == "ordinary-backend-response"
+    # Original backend restored cleanly once benchmark call finishes
+    assert agent_ai_module.llm is sentinel_backend
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_few_shot_max_demos_zero_returns_zero_demos():
+    """BootstrapFewShotOptimizer(max_demos=0) on a simple-only passing slice must return 0 demos."""
+    ds = build_dataset(seed=42)
+    ex = HanzoProgramExecutor(seed=42)
+    simple_train = [
+        t
+        for t in ds.by_category("train", "json_extraction")
+        if t.complexity == "simple"
+    ]
+    assert simple_train  # Sanity check: simple tasks exist and pass under zero-shot baseline
+
+    baseline = await ZeroShotBaselineOptimizer().compile(
+        "json_extraction", simple_train, simple_train, ex
+    )
+    baseline_results = await ex.evaluate_program(baseline, simple_train)
+    assert any(r.passed for r in baseline_results)
+
+    opt = BootstrapFewShotOptimizer(max_demos=0)
+    program = await opt.compile(
+        category="json_extraction",
+        train_tasks=simple_train,
+        dev_tasks=simple_train,
+        executor=ex,
+    )
+    assert len(program.demonstrations) == 0
+    assert program.metadata["total_demos"] == 0
+    assert program.metadata["bootstrapped_traces"] == 0
+    assert program.metadata["labeled_fallback_traces"] == 0
+
+

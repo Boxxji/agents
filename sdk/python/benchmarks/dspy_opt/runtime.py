@@ -618,20 +618,45 @@ class _ContextRoutedLLM:
     class utils:
         @staticmethod
         def token_counter(model: str, messages: List[Dict[str, Any]]) -> int:
+            if _ACTIVE_PROVIDER.get(None) is None:
+                with _LLM_HOOK_LOCK:
+                    saved_llm = _LLM_HOOK_SAVED_LLM
+                saved_utils = getattr(saved_llm, "utils", None) if saved_llm is not None else None
+                saved_counter = getattr(saved_utils, "token_counter", None)
+                if callable(saved_counter):
+                    return saved_counter(model=model, messages=messages)
             return count_message_tokens(messages)
 
         @staticmethod
         def trim_messages(
             messages: List[Dict[str, Any]], model: str, max_tokens: int
         ) -> List[Dict[str, Any]]:
+            if _ACTIVE_PROVIDER.get(None) is None:
+                with _LLM_HOOK_LOCK:
+                    saved_llm = _LLM_HOOK_SAVED_LLM
+                saved_utils = getattr(saved_llm, "utils", None) if saved_llm is not None else None
+                saved_trim = getattr(saved_utils, "trim_messages", None)
+                if callable(saved_trim):
+                    return saved_trim(messages=messages, model=model, max_tokens=max_tokens)
             return messages
 
     @staticmethod
     async def acompletion(**kwargs: Any) -> Any:
-        provider = _ACTIVE_PROVIDER.get()
-        if provider is None:
-            raise RuntimeError("No active SimulatedEnsoZenProvider bound to context")
-        return await provider.acompletion(**kwargs)
+        provider = _ACTIVE_PROVIDER.get(None)
+        if provider is not None:
+            return await provider.acompletion(**kwargs)
+        with _LLM_HOOK_LOCK:
+            saved_llm = _LLM_HOOK_SAVED_LLM
+        if saved_llm is not None and hasattr(saved_llm, "acompletion"):
+            return await saved_llm.acompletion(**kwargs)
+        raise RuntimeError("No active SimulatedEnsoZenProvider bound to context")
+
+    def __getattr__(self, name: str) -> Any:
+        with _LLM_HOOK_LOCK:
+            saved_llm = _LLM_HOOK_SAVED_LLM
+        if saved_llm is not None:
+            return getattr(saved_llm, name)
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
 
 class _BenchmarkAgent:

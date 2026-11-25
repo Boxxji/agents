@@ -281,6 +281,20 @@ class BootstrapFewShotOptimizer:
         dev_tasks: Sequence[TaskSpec],
         executor: HanzoProgramExecutor,
     ) -> CompiledProgram:
+        if self.max_demos <= 0:
+            return CompiledProgram(
+                strategy=self.name,
+                category=category,
+                instruction=BASELINE_INSTRUCTIONS[category],
+                demonstrations=(),
+                model=self.model,
+                metadata={
+                    "bootstrapped_traces": 0,
+                    "labeled_fallback_traces": 0,
+                    "total_demos": 0,
+                },
+            )
+
         base_program = CompiledProgram(
             strategy=self.name,
             category=category,
@@ -299,6 +313,8 @@ class BootstrapFewShotOptimizer:
             key=lambda t: (0 if t.complexity == "complex" else 1, t.task_id),
         )
         for task in ordered_train:
+            if len(bootstrapped) >= self.max_demos:
+                break
             res = result_by_id.get(task.task_id)
             if res and res.passed and res.output is not None:
                 bootstrapped.append(
@@ -313,8 +329,6 @@ class BootstrapFewShotOptimizer:
                     )
                 )
                 used_ids.add(task.task_id)
-            if len(bootstrapped) >= self.max_demos:
-                break
 
         # Supplement with verified labeled train traces if teacher passes < max_demos
         remaining_slots = self.max_demos - len(bootstrapped)
