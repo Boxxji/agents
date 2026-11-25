@@ -1,1 +1,1 @@
-"""Benchmarks for the Hanzo Agents Python SDK."""
+"""Benchmark suites for the Hanzo Agents Python SDK."""
