@@ -21,6 +21,7 @@ export * from './memory/MemoryEventClient.js';
 export * from './memory/MemoryInterface.js';
 export * from './memory/ReflectiveMemory.js';
 export * from './memory/TieredMemory.js';
+export * from './retrieval/index.js';
 export * from './router/AgentRouter.js';
 export * from './types/agent.js';
 export * from './types/mcp.js';
