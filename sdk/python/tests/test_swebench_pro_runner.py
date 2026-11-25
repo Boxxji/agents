@@ -745,3 +745,155 @@ async def test_rejected_patch_and_leakage_blocked_finalize_wall_time_and_io_tele
             assert res.io.syscr_ops > 0
             assert res.io.syscw_ops > 0
 
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_injected_pytest_package_directory_is_rejected_before_grading() -> None:
+    """P1: Agent injecting pytest/__init__.py + pytest/__main__.py must be flagged as tampered."""
+
+    class _PytestPkgInjectorAgent(CodingAgent):
+        name = "redteam_pytest_pkg_injector"
+
+        async def solve(
+            self,
+            task: SWEBenchTask,
+            workspace: Path,
+            env: Dict[str, str],
+            ai_config: AIConfig,
+        ) -> AgentInvocationResult:
+            pkg_dir = workspace / "pytest"
+            pkg_dir.mkdir(exist_ok=True)
+            (pkg_dir / "__init__.py").write_text("", encoding="utf-8")
+            (pkg_dir / "__main__.py").write_text("import sys; sys.exit(0)\n", encoding="utf-8")
+            return AgentInvocationResult(patch_diff="", prompt_tokens=10, completion_tokens=5)
+
+    task = build_cleanroom_v2_subset()[0]
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        res = await runner.run_task(task, _PytestPkgInjectorAgent(), StorageProfile.VISOR_ISOLATED)
+
+    assert res.tampered is True
+    assert res.resolved is False
+    assert res.status == TaskStatus.TAMPERED
+    assert any(v.code == ViolationType.TEST_RUNNER_SHIM for v in res.integrity.violations)
+
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_cas_cache_key_invalidates_when_task_content_changes() -> None:
+    """P2: Reusing SWEBenchProRunner after mutating a task's tests must not serve stale CAS images."""
+    from copy import deepcopy
+
+    task_v1 = deepcopy(build_cleanroom_v2_subset()[0])
+    task_v2 = deepcopy(task_v1)
+    first_test_path = task_v2.protected_test_paths[0]
+    # Replace assertions in the test file with guaranteed failures while preserving node IDs
+    mutated_lines = []
+    for line in task_v2.test_files[first_test_path].splitlines():
+        if line.lstrip().startswith("assert "):
+            indent = line[: len(line) - len(line.lstrip())]
+            mutated_lines.append(f"{indent}assert False, 'mutated test must fail'")
+        else:
+            mutated_lines.append(line)
+    task_v2.test_files[first_test_path] = "\n".join(mutated_lines) + "\n"
+
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        res_v1 = await runner.run_task(task_v1, OraclePatchAgent(), StorageProfile.VISOR_ISOLATED)
+        res_v2 = await runner.run_task(task_v2, OraclePatchAgent(), StorageProfile.VISOR_ISOLATED)
+
+    assert res_v1.resolved is True
+    assert res_v2.resolved is False
+    assert res_v2.integrity.clean is True
+
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_inherited_pytest_class_nodeid_preserved_in_junit_grading() -> None:
+    """P2: Inherited pytest methods defined in a base file must keep their collected subclass nodeid."""
+    task = SWEBenchTask(
+        instance_id="swebench_pro_v2__inherited_cls_check",
+        repo="hanzoai/inherited-demo",
+        language="python",
+        difficulty="easy",
+        revision="sep-2026",
+        problem_statement="Fix answer() to return 42.",
+        base_files={
+            "pkg/__init__.py": "",
+            "pkg/calc.py": "def answer() -> int:\n    return 0\n",
+        },
+        test_files={
+            "tests/__init__.py": "",
+            "tests/base_checks.py": (
+                "from pkg.calc import answer\n\n"
+                "class BaseChecks:\n"
+                "    def test_answer(self) -> None:\n"
+                "        assert answer() == 42\n"
+            ),
+            "tests/test_child.py": (
+                "from tests.base_checks import BaseChecks\n\n"
+                "class TestChild(BaseChecks):\n"
+                "    def test_type(self) -> None:\n"
+                "        assert isinstance(42, int)\n"
+            ),
+        },
+        gold_patch_files={
+            "pkg/calc.py": "def answer() -> int:\n    return 42\n",
+        },
+        expected_touched_files=["pkg/calc.py"],
+        fail_to_pass_tests=["tests/test_child.py::TestChild::test_answer"],
+        pass_to_pass_tests=["tests/test_child.py::TestChild::test_type"],
+        protected_test_paths=["tests/test_child.py", "tests/base_checks.py"],
+        gold_marker="INHERITED_GOLD_MARKER_42",
+    )
+
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        res = await runner.run_task(task, OraclePatchAgent(), StorageProfile.PLAIN_NVME)
+
+    assert res.resolved is True, f"Inherited test failed: {res.test_output_tail}"
+    assert res.fail_to_pass_passed == 1
+    assert res.pass_to_pass_passed == 1
+
+
+@pytest.mark.functional
+@pytest.mark.asyncio
+async def test_oracle_patch_supports_newly_created_reference_files() -> None:
+    """P2: build_unified_diff must emit valid creation diffs for new files absent from base_files."""
+    task = SWEBenchTask(
+        instance_id="swebench_pro_v2__new_file_patch",
+        repo="hanzoai/newfile-demo",
+        language="python",
+        difficulty="easy",
+        revision="sep-2026",
+        problem_statement="Add pkg/helper.py and use it from pkg/main.py.",
+        base_files={
+            "pkg/__init__.py": "",
+            "pkg/main.py": "def greet() -> str:\n    return 'broken'\n",
+        },
+        test_files={
+            "tests/__init__.py": "",
+            "tests/test_newfile.py": (
+                "from pkg.main import greet\n\n"
+                "def test_greet() -> None:\n"
+                "    assert greet() == 'hello-helper'\n\n"
+                "def test_sanity() -> None:\n"
+                "    assert callable(greet)\n"
+            ),
+        },
+        gold_patch_files={
+            "pkg/helper.py": "def suffix() -> str:\n    return 'helper'\n",
+            "pkg/main.py": "from pkg.helper import suffix\n\ndef greet() -> str:\n    return f'hello-{suffix()}'\n",
+        },
+        expected_touched_files=["pkg/helper.py", "pkg/main.py"],
+        fail_to_pass_tests=["tests/test_newfile.py::test_greet"],
+        pass_to_pass_tests=["tests/test_newfile.py::test_sanity"],
+        protected_test_paths=["tests/test_newfile.py"],
+        gold_marker="NEW_FILE_GOLD_MARKER_01",
+    )
+
+    with SWEBenchProRunner(repo_scale="tiny") as runner:
+        res_nvme = await runner.run_task(task, OraclePatchAgent(), StorageProfile.PLAIN_NVME)
+        res_visor = await runner.run_task(task, OraclePatchAgent(), StorageProfile.VISOR_ISOLATED)
+
+    assert res_nvme.resolved is True, f"NVMe new-file failed: {res_nvme.test_output_tail}"
+    assert res_visor.resolved is True, f"Visor new-file failed: {res_visor.test_output_tail}"
+
+

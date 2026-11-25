@@ -60,23 +60,29 @@ def build_unified_diff(
     """Generate a git-compatible unified diff between base and patched file maps."""
     chunks: List[str] = []
     for rel in sorted(patched_files.keys()):
-        old_text = base_files.get(rel, "")
+        is_new = rel not in base_files
+        old_text = "" if is_new else base_files[rel]
         new_text = patched_files[rel]
-        if old_text == new_text:
+        if not is_new and old_text == new_text:
             continue
-        old_lines = old_text.splitlines(keepends=True)
+        old_lines = [] if is_new else old_text.splitlines(keepends=True)
         new_lines = new_text.splitlines(keepends=True)
         diff_lines = list(
             difflib.unified_diff(
                 old_lines,
                 new_lines,
-                fromfile=f"a/{rel}",
+                fromfile="/dev/null" if is_new else f"a/{rel}",
                 tofile=f"b/{rel}",
                 n=3,
             )
         )
-        if diff_lines:
-            chunks.append(f"diff --git a/{rel} b/{rel}\n" + "".join(diff_lines))
+        if is_new and not diff_lines:
+            chunks.append(f"diff --git a/{rel} b/{rel}\nnew file mode 100644\n")
+        elif diff_lines:
+            header = f"diff --git a/{rel} b/{rel}\n"
+            if is_new:
+                header += "new file mode 100644\n"
+            chunks.append(header + "".join(diff_lines))
     return "".join(chunks)
 
 
@@ -384,30 +390,68 @@ def _apply_patch_in_workspace(workspace: Path, patch_diff: str) -> Tuple[bool, s
     return True, ""
 
 
-def _junit_testcase_nodeid(tc: ET.Element) -> Optional[str]:
-    """Reconstruct canonical pytest nodeid (`path/to/test.py::[Class::]test_fn`) from JUnit XML."""
+def _junit_testcase_nodeid(
+    tc: ET.Element,
+    workspace: Optional[Path] = None,
+) -> Optional[str]:
+    """Reconstruct canonical pytest nodeid (`path/to/test.py::[Class::]test_fn`) from JUnit XML.
+
+    Preserves collected test paths and class hierarchies even for inherited test
+    methods whose JUnit ``file`` attribute points to the base-class definition
+    module rather than the collected subclass module.
+    """
     name = tc.attrib.get("name", "").strip()
     if not name:
         return None
     file_attr = tc.attrib.get("file", "").strip().replace("\\", "/")
     classname = tc.attrib.get("classname", "").strip()
 
+    # 1. When workspace is known, resolve collected module vs class split directly
+    #    from `classname` against real files in workspace (handles inherited methods).
+    if classname and workspace is not None:
+        parts = classname.split(".")
+        for k in range(len(parts), 0, -1):
+            candidate = "/".join(parts[:k]) + ".py"
+            if (workspace / candidate).is_file():
+                class_parts = parts[k:]
+                if class_parts:
+                    return f"{candidate}::{'::'.join(class_parts)}::{name}"
+                return f"{candidate}::{name}"
+
+    # 2. When `file_attr` matches `classname`'s module prefix (or `classname` is empty),
+    #    use `file_attr` directly.
     if file_attr:
-        mod_prefix = file_attr[:-3].replace("/", ".") if file_attr.endswith(".py") else file_attr.replace("/", ".")
-        if classname and classname.startswith(mod_prefix + "."):
+        mod_prefix = (
+            file_attr[:-3].replace("/", ".")
+            if file_attr.endswith(".py")
+            else file_attr.replace("/", ".")
+        )
+        if not classname or classname == mod_prefix:
+            return f"{file_attr}::{name}"
+        if classname.startswith(mod_prefix + "."):
             class_suffix = classname[len(mod_prefix) + 1 :]
             return f"{file_attr}::{class_suffix.replace('.', '::')}::{name}"
-        return f"{file_attr}::{name}"
 
-    # Fallback when file attribute is absent: derive module path from dotted classname
+    # 3. Fallback when `file_attr` is absent or refers to an inherited base file
+    #    and `workspace` was not supplied: split dotted classname at class-like suffix.
     if classname:
         parts = classname.split(".")
+        if len(parts) >= 2 and parts[-1][:1].isupper():
+            split_idx = len(parts) - 1
+            while split_idx > 1 and parts[split_idx - 1][:1].isupper():
+                split_idx -= 1
+            file_guess = "/".join(parts[:split_idx]) + ".py"
+            class_suffix = "::".join(parts[split_idx:])
+            return f"{file_guess}::{class_suffix}::{name}"
         file_guess = "/".join(parts) + ".py"
         return f"{file_guess}::{name}"
     return None
 
 
-def _parse_junit_xml(junit_path: Path) -> Dict[str, bool]:
+def _parse_junit_xml(
+    junit_path: Path,
+    workspace: Optional[Path] = None,
+) -> Dict[str, bool]:
     """Parse evaluator-owned JUnit XML strictly; True iff testcase has zero failure/error/skipped."""
     if not junit_path.is_file():
         return {}
@@ -419,7 +463,7 @@ def _parse_junit_xml(junit_path: Path) -> Dict[str, bool]:
     outcomes: Dict[str, bool] = {}
     root = tree.getroot()
     for tc in root.iter("testcase"):
-        nodeid = _junit_testcase_nodeid(tc)
+        nodeid = _junit_testcase_nodeid(tc, workspace=workspace)
         if not nodeid:
             continue
         has_non_pass = (
@@ -448,17 +492,20 @@ def _run_pytest_grading(
 
     Returns ``(f2p_passed, p2p_passed, output_tail, timed_out, exit_code)``.
     """
+    # Resolve symlinks (e.g. macOS /var -> /private/var) so --rootdir and cwd agree
+    # and pytest emits clean repo-relative nodeids in JUnit XML.
+    workspace_real = workspace.resolve()
     test_env = sanitize_execution_env()
     # Trusted evaluator explicitly pins PYTHONPATH to the verified workspace root only.
-    test_env["PYTHONPATH"] = str(workspace)
+    test_env["PYTHONPATH"] = str(workspace_real)
 
     with tempfile.TemporaryDirectory(prefix="swebench_junit_") as junit_dir:
-        junit_path = Path(junit_dir) / "results.xml"
+        junit_path = Path(junit_dir).resolve() / "results.xml"
         cmd = [
             sys.executable,
             "-m",
             "pytest",
-            f"--rootdir={workspace}",
+            f"--rootdir={workspace_real}",
             "-v",
             "--tb=short",
             "--no-header",
@@ -474,7 +521,7 @@ def _run_pytest_grading(
         try:
             proc = subprocess.run(
                 cmd,
-                cwd=str(workspace),
+                cwd=str(workspace_real),
                 env=test_env,
                 capture_output=True,
                 text=True,
@@ -485,7 +532,7 @@ def _run_pytest_grading(
             return 0, 0, f"TIMEOUT after {timeout_s}s\n{tail}", True, -1
 
         combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        outcomes = _parse_junit_xml(junit_path)
+        outcomes = _parse_junit_xml(junit_path, workspace=workspace_real)
         f2p_passed = sum(1 for t in task.fail_to_pass_tests if outcomes.get(t) is True)
         p2p_passed = sum(1 for t in task.pass_to_pass_tests if outcomes.get(t) is True)
         tail = "\n".join(combined.strip().splitlines()[-12:])

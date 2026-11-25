@@ -179,14 +179,44 @@ def _build_file_manifest(workspace: Path) -> Dict[str, str]:
     return manifest
 
 
+def _task_cas_fingerprint(task: SWEBenchTask, scale: RepoScaleConfig) -> str:
+    """Compute a content-addressed fingerprint covering task files, tests, patches, and ballast scale."""
+    h = hashlib.sha256()
+    for field_name, val in (
+        ("instance_id", task.instance_id),
+        ("revision", task.revision),
+        ("gold_marker", task.gold_marker),
+        ("scale_name", scale.name),
+        ("asset_files", str(scale.asset_files)),
+        ("asset_bytes_per_file", str(scale.asset_bytes_per_file)),
+    ):
+        h.update(f"{field_name}:{val}\n".encode("utf-8"))
+    for section, mapping in (
+        ("base_files", task.base_files),
+        ("test_files", task.test_files),
+        ("gold_patch_files", task.gold_patch_files),
+    ):
+        h.update(f"[{section}]\n".encode("utf-8"))
+        for rel in sorted(mapping.keys()):
+            content_bytes = mapping[rel].encode("utf-8")
+            h.update(f"{rel}:{len(content_bytes)}:".encode("utf-8"))
+            h.update(hashlib.sha256(content_bytes).digest())
+            h.update(b"\n")
+    h.update(b"[protected_test_paths]\n")
+    for rel in sorted(task.protected_test_paths):
+        h.update(f"{rel}\n".encode("utf-8"))
+    return h.hexdigest()
+
+
 class SandboxManager:
     """Manages isolated task sandboxes for both ``plain_nvme`` and ``visor_isolated``."""
 
     def __init__(self, cas_root: Optional[Path] = None) -> None:
         self._owns_cas_root = cas_root is None
-        self.cas_root = cas_root or Path(tempfile.mkdtemp(prefix="visor_cas_store_"))
+        raw_cas = cas_root or Path(tempfile.mkdtemp(prefix="visor_cas_store_"))
+        self.cas_root = raw_cas.resolve()
         self._cas_lock = threading.Lock()
-        self._cas_images: Dict[Tuple[str, str], _CASImage] = {}
+        self._cas_images: Dict[Tuple[str, str, str], _CASImage] = {}
 
     def close(self) -> None:
         if self._owns_cas_root and self.cas_root.exists():
@@ -199,13 +229,14 @@ class SandboxManager:
         scale: RepoScaleConfig,
     ) -> Tuple[_CASImage, bool, int]:
         """Build/fetch scrubbed read-only CAS image for ``visor_isolated``."""
-        key = (task.instance_id, scale.name)
+        fingerprint = _task_cas_fingerprint(task, scale)
+        key = (task.instance_id, scale.name, fingerprint)
         with self._cas_lock:
             existing = self._cas_images.get(key)
             if existing is not None and existing.image_dir.exists():
                 return existing, True, 0
 
-            image_dir = self.cas_root / f"{task.instance_id}__{scale.name}"
+            image_dir = self.cas_root / f"{task.instance_id}__{scale.name}__{fingerprint[:12]}"
             if image_dir.exists():
                 restore_writable_tree(image_dir)
                 shutil.rmtree(image_dir, ignore_errors=True)
@@ -259,7 +290,7 @@ class SandboxManager:
         t0 = time.perf_counter_ns()
         root_tempdir = Path(
             tempfile.mkdtemp(prefix=f"swebench_{profile.value}_{task.instance_id[:24]}_")
-        )
+        ).resolve()
         workspace = root_tempdir / "repo"
         workspace.mkdir(parents=True, exist_ok=True)
 

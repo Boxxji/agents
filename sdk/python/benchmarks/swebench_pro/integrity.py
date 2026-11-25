@@ -505,6 +505,12 @@ def verify_post_execution_integrity(
             )
 
     # 3. Walk entire workspace (excluding .git) for symlink escapes & runner shims
+    base_dir_set = set()
+    for rel in base_file_set:
+        parts = Path(rel).parts[:-1]
+        for idx in range(1, len(parts) + 1):
+            base_dir_set.add(str(Path(*parts[:idx])))
+
     for dirpath, dirnames, filenames in os.walk(workspace, followlinks=False):
         if ".git" in dirnames:
             dirnames.remove(".git")
@@ -513,21 +519,22 @@ def verify_post_execution_integrity(
         # Check directory symlinks too
         for dname in list(dirnames):
             dpath = current_dir / dname
+            rel_dir = str(dpath.relative_to(workspace))
             if dpath.is_symlink():
                 resolved = os.path.realpath(str(dpath))
                 if not _is_within_root(resolved, workspace_real):
                     rep.add_violation(
                         ViolationType.SYMLINK_ESCAPE,
-                        str(dpath.relative_to(workspace)),
+                        rel_dir,
                         f"Directory symlink escapes workspace root -> {resolved}",
                         phase="post",
                     )
                 dirnames.remove(dname)
-            elif dname == "_pytest":
+            elif dname in {"_pytest", "pytest", "pluggy", "unittest"} and rel_dir not in base_dir_set:
                 rep.add_violation(
                     ViolationType.TEST_RUNNER_SHIM,
-                    str(dpath.relative_to(workspace)),
-                    "Injected _pytest package directory detected",
+                    rel_dir,
+                    f"Injected {dname} package directory detected at {rel_dir!r}",
                     phase="post",
                 )
 
