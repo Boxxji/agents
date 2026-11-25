@@ -14,6 +14,7 @@ export * from './mcp/MCPToolRegistrar.js';
 export * from './memory/AssociativeMemory.js';
 export * from './memory/AtomicFactMemory.js';
 export * from './memory/BaseMemory.js';
+export * from './memory/LearnedMemoryPolicy.js';
 export * from './memory/MemoryBackend.js';
 export * from './memory/MemoryClient.js';
 export * from './memory/MemoryEventClient.js';

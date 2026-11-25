@@ -1,4 +1,5 @@
 import type { AIClient, AIEmbeddingOptions } from '../ai/AIClient.js';
+import { PolicyControlledMemory } from './LearnedMemoryPolicy.js';
 import { AssociativeMemory } from './AssociativeMemory.js';
 import { ReflectiveMemory } from './ReflectiveMemory.js';
 import { TieredMemory } from './TieredMemory.js';
@@ -253,6 +254,27 @@ export class MemoryInterface {
       metadata: this.metadata,
       maxEdgesPerNode: options?.maxEdgesPerNode,
       minAssociationScore: options?.minAssociationScore,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  policy(options?: {
+    learningRate?: number;
+    minConfidenceForAdd?: number;
+    minEvidenceCount?: number;
+    minAnswerConfidence?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new PolicyControlledMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      learningRate: options?.learningRate,
+      minConfidenceForAdd: options?.minConfidenceForAdd,
+      minEvidenceCount: options?.minEvidenceCount,
+      minAnswerConfidence: options?.minAnswerConfidence,
       embeddingOptions: options?.embeddingOptions
     });
   }
