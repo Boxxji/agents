@@ -1,4 +1,5 @@
 import type { AIClient, AIEmbeddingOptions } from '../ai/AIClient.js';
+import { AssociativeMemory } from './AssociativeMemory.js';
 import { ReflectiveMemory } from './ReflectiveMemory.js';
 import { TieredMemory } from './TieredMemory.js';
 import { AtomicFactMemory, type FactDecisionModel } from './AtomicFactMemory.js';
@@ -235,6 +236,23 @@ export class MemoryInterface {
       defaultScope: this.defaultScope,
       defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
       metadata: this.metadata,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  associative(options?: {
+    maxEdgesPerNode?: number;
+    minAssociationScore?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new AssociativeMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      maxEdgesPerNode: options?.maxEdgesPerNode,
+      minAssociationScore: options?.minAssociationScore,
       embeddingOptions: options?.embeddingOptions
     });
   }
