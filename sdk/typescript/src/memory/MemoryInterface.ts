@@ -1,4 +1,9 @@
 import type { AIClient, AIEmbeddingOptions } from '../ai/AIClient.js';
+import { PolicyControlledMemory } from './LearnedMemoryPolicy.js';
+import { AssociativeMemory } from './AssociativeMemory.js';
+import { ReflectiveMemory } from './ReflectiveMemory.js';
+import { TieredMemory } from './TieredMemory.js';
+import { AtomicFactMemory, type FactDecisionModel } from './AtomicFactMemory.js';
 import type { MemoryScope } from '../types/agent.js';
 import type { MemoryBackend } from './MemoryBackend.js';
 import type { MemoryRequestMetadata, VectorSearchOptions } from './MemoryClient.js';
@@ -189,6 +194,89 @@ export class MemoryInterface {
 
   onEvent(handler: MemoryWatchHandler) {
     this.eventClient?.onEvent(handler);
+  }
+
+  facts(options?: {
+    decisionModel?: FactDecisionModel;
+    reviewConfidenceThreshold?: number;
+    semanticDuplicateThreshold?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new AtomicFactMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      decisionModel: options?.decisionModel,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      reviewConfidenceThreshold: options?.reviewConfidenceThreshold,
+      semanticDuplicateThreshold: options?.semanticDuplicateThreshold,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  tiered(options?: {
+    episodicCompactionThreshold?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new TieredMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      episodicCompactionThreshold: options?.episodicCompactionThreshold,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  reflective(options?: { embeddingOptions?: AIEmbeddingOptions }) {
+    return new ReflectiveMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  associative(options?: {
+    maxEdgesPerNode?: number;
+    minAssociationScore?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new AssociativeMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      maxEdgesPerNode: options?.maxEdgesPerNode,
+      minAssociationScore: options?.minAssociationScore,
+      embeddingOptions: options?.embeddingOptions
+    });
+  }
+
+  policy(options?: {
+    learningRate?: number;
+    minConfidenceForAdd?: number;
+    minEvidenceCount?: number;
+    minAnswerConfidence?: number;
+    embeddingOptions?: AIEmbeddingOptions;
+  }) {
+    return new PolicyControlledMemory({
+      client: this.client,
+      aiClient: this.aiClient,
+      defaultScope: this.defaultScope,
+      defaultScopeId: this.defaultScopeId ?? this.resolveScopeId(this.defaultScope, this.metadata) ?? 'default',
+      metadata: this.metadata,
+      learningRate: options?.learningRate,
+      minConfidenceForAdd: options?.minConfidenceForAdd,
+      minEvidenceCount: options?.minEvidenceCount,
+      minAnswerConfidence: options?.minAnswerConfidence,
+      embeddingOptions: options?.embeddingOptions
+    });
   }
 
   private cloneWithScope(scope: MemoryScope, scopeId?: string) {
