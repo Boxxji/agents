@@ -7,13 +7,15 @@ mod sidecar;
 
 use crate::bridge::build_initialization_script;
 use crate::sidecar::{
-    generate_random_token, pick_available_port, SidecarRuntimeConfig, SidecarSupervisor,
+    generate_random_token, pick_available_port, SidecarClient, SidecarRuntimeConfig,
+    SidecarSupervisor,
 };
 use std::env;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
-struct AppState {
-    supervisor: SidecarSupervisor,
+pub(crate) struct AppState {
+    pub supervisor: SidecarSupervisor,
+    pub client: SidecarClient,
 }
 
 #[cfg(target_os = "linux")]
@@ -49,7 +51,7 @@ fn main() {
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
-    let init_script = build_initialization_script(port, &token, &home_dir);
+    let init_script = build_initialization_script(&home_dir);
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -65,7 +67,9 @@ fn main() {
                 user_data_dir,
                 mcp_mode,
             });
-            app.manage(AppState { supervisor });
+            let client = SidecarClient::new(port, token.clone());
+            client.spawn_event_relay(app.handle().clone(), supervisor.shutdown_flag());
+            app.manage(AppState { supervisor, client });
 
             let webview_url = match &dev_vite_url {
                 Some(raw) => WebviewUrl::External(raw.parse()?),
@@ -90,6 +94,8 @@ fn main() {
             commands::desktop_window_close,
             commands::desktop_window_is_maximized,
             commands::desktop_open_directory_dialog,
+            commands::sidecar_rpc_invoke,
+            commands::sidecar_rpc_send,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Hanzo Agents Tauri application");

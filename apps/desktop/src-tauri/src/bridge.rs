@@ -1,19 +1,21 @@
 use crate::bridge_apis::DOMAIN_APIS_JS;
+use crate::sidecar::SIDECAR_EVENT_NAME;
 use serde_json::json;
 
-pub fn build_initialization_script(port: u16, token: &str, home_dir: &str) -> String {
+pub fn build_initialization_script(home_dir: &str) -> String {
     let cfg = json!({
-        "baseUrl": format!("http://127.0.0.1:{port}"),
-        "token": token,
         "homeDir": home_dir,
     });
     let serialized = serde_json::to_string(&cfg).unwrap_or_else(|_| "{}".to_string());
+    let sidecar_event_name =
+        serde_json::to_string(SIDECAR_EVENT_NAME).unwrap_or_else(|_| "\"hanzo-sidecar-event\"".to_string());
 
     format!(
         r#"(function () {{
   if (typeof window === "undefined" || window.__HANZO_AGENTS_TAURI_SHIM__) return;
   window.__HANZO_AGENTS_TAURI_SHIM__ = true;
   const __CFG__ = {serialized};
+  const __SIDECAR_EVENT__ = {sidecar_event_name};
 
   function tauriInvoke(cmd, args) {{
     if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === "function") {{
@@ -54,72 +56,34 @@ pub fn build_initialization_script(port: u16, token: &str, home_dir: &str) -> St
     }}
   }}
 
-  let eventSource = null;
-  function connectEvents() {{
-    try {{
-      const url = __CFG__.baseUrl + "/rpc/events?token=" + encodeURIComponent(__CFG__.token);
-      eventSource = new EventSource(url);
-      eventSource.onmessage = function (ev) {{
-        try {{
-          const msg = JSON.parse(ev.data);
-          if (msg && typeof msg.channel === "string") {{
-            dispatchEvent(msg.channel, msg.payload);
-          }}
-        }} catch (_e) {{}}
-      }};
-      eventSource.onerror = function () {{
-        if (eventSource) {{
-          eventSource.close();
-          eventSource = null;
+  let sidecarEventsSubscribed = false;
+  function subscribeSidecarEvents() {{
+    if (sidecarEventsSubscribed) return;
+    if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === "function") {{
+      sidecarEventsSubscribed = true;
+      window.__TAURI__.event.listen(__SIDECAR_EVENT__, function (ev) {{
+        const msg = ev && ev.payload;
+        if (msg && typeof msg.channel === "string") {{
+          dispatchEvent(msg.channel, msg.payload);
         }}
-        setTimeout(connectEvents, 750);
-      }};
-    }} catch (_err) {{
-      setTimeout(connectEvents, 1000);
+      }}).catch(function () {{
+        sidecarEventsSubscribed = false;
+        setTimeout(subscribeSidecarEvents, 500);
+      }});
+      return;
     }}
+    setTimeout(subscribeSidecarEvents, 50);
   }}
-  connectEvents();
+  subscribeSidecarEvents();
 
   async function rpcInvoke(channel) {{
     const args = Array.prototype.slice.call(arguments, 1);
-    let lastErr = null;
-    for (let attempt = 0; attempt < 12; attempt++) {{
-      try {{
-        const res = await fetch(__CFG__.baseUrl + "/rpc/invoke", {{
-          method: "POST",
-          headers: {{
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + __CFG__.token
-          }},
-          body: JSON.stringify({{ channel: channel, args: args }})
-        }});
-        const body = await res.json();
-        if (!body.ok) {{
-          throw new Error(body.error || ("RPC failed: " + channel));
-        }}
-        return body.result;
-      }} catch (err) {{
-        lastErr = err;
-        if (err && err.name === "TypeError" && attempt < 11) {{
-          await new Promise(function (r) {{ setTimeout(r, 250); }});
-          continue;
-        }}
-        throw err;
-      }}
-    }}
-    throw lastErr || new Error("Sidecar unreachable: " + channel);
+    return await tauriInvoke("sidecar_rpc_invoke", {{ channel: channel, args: args }});
   }}
 
   function rpcSend(channel) {{
     const args = Array.prototype.slice.call(arguments, 1);
-    fetch(__CFG__.baseUrl + "/rpc/send", {{
-      method: "POST",
-      headers: {{
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + __CFG__.token
-      }},
-      body: JSON.stringify({{ channel: channel, args: args }})
-    }}).catch(function () {{}});
+    tauriInvoke("sidecar_rpc_send", {{ channel: channel, args: args }}).catch(function () {{}});
   }}
 
   async function unwrapResponse(promise) {{
@@ -236,10 +200,31 @@ pub fn build_initialization_script(port: u16, token: &str, home_dir: &str) -> St
 #[cfg(test)]
 mod tests {
     use super::build_initialization_script;
+    use crate::commands::{
+        is_allowed_invoke_channel, is_allowed_send_channel, ALLOWED_INVOKE_CHANNELS,
+        ALLOWED_SEND_CHANNELS,
+    };
+    use std::collections::BTreeSet;
+
+    fn extract_call_channels(script: &str, fn_name: &str) -> BTreeSet<String> {
+        let needle = format!("{fn_name}(\"");
+        let mut out = BTreeSet::new();
+        let mut rest = script;
+        while let Some(idx) = rest.find(&needle) {
+            let after = &rest[idx + needle.len()..];
+            if let Some(end) = after.find('"') {
+                out.insert(after[..end].to_string());
+                rest = &after[end + 1..];
+            } else {
+                break;
+            }
+        }
+        out
+    }
 
     #[test]
     fn init_script_exposes_all_renderer_apis() {
-        let script = build_initialization_script(13880, "test-token", "/home/test");
+        let script = build_initialization_script("/home/test");
         for api in [
             "window.electronAPI",
             "window.terminalSessionAPI",
@@ -259,5 +244,66 @@ mod tests {
         ] {
             assert!(script.contains(api), "missing {api}");
         }
+    }
+
+    #[test]
+    fn init_script_never_exposes_sidecar_token_or_direct_http_calls() {
+        let script = build_initialization_script("/home/test");
+        for forbidden in [
+            "token",
+            "baseUrl",
+            "127.0.0.1",
+            "EventSource",
+            "fetch(",
+            "/rpc/invoke",
+            "/rpc/send",
+            "/rpc/events",
+            "Authorization",
+        ] {
+            assert!(
+                !script.contains(forbidden),
+                "initialization script must not contain {forbidden:?}"
+            );
+        }
+        assert!(script.contains("sidecar_rpc_invoke"));
+        assert!(script.contains("sidecar_rpc_send"));
+        assert!(script.contains("hanzo-sidecar-event"));
+    }
+
+    #[test]
+    fn bridge_channels_match_rust_command_allowlists() {
+        let script = build_initialization_script("/home/test");
+
+        let invoke_channels = extract_call_channels(&script, "rpcInvoke");
+        let send_channels = extract_call_channels(&script, "rpcSend");
+
+        for ch in &invoke_channels {
+            assert!(
+                is_allowed_invoke_channel(ch),
+                "bridge rpcInvoke channel {ch:?} is missing from ALLOWED_INVOKE_CHANNELS"
+            );
+        }
+        for ch in ALLOWED_INVOKE_CHANNELS {
+            assert!(
+                invoke_channels.contains(*ch),
+                "ALLOWED_INVOKE_CHANNELS entry {ch:?} is unused in bridge script"
+            );
+        }
+
+        for ch in &send_channels {
+            assert!(
+                is_allowed_send_channel(ch),
+                "bridge rpcSend channel {ch:?} is missing from ALLOWED_SEND_CHANNELS"
+            );
+        }
+        for ch in ALLOWED_SEND_CHANNELS {
+            assert!(
+                send_channels.contains(*ch),
+                "ALLOWED_SEND_CHANNELS entry {ch:?} is unused in bridge script"
+            );
+        }
+
+        assert!(!is_allowed_invoke_channel("arbitrary:evil"));
+        assert!(!is_allowed_send_channel("arbitrary:evil"));
     }
 }

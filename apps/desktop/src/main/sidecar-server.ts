@@ -1,17 +1,29 @@
+import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { ipcBus } from './ipc-bus';
-import { getHomePath } from './paths';
 
 export interface SidecarServerOptions {
   port: number;
   host?: string;
-  token?: string;
+  token: string;
 }
+
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
+const LOOPBACK_HOST_PATTERN = /^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/i;
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalBytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8').trim();
       if (!raw) {
@@ -28,12 +40,18 @@ function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
-function isAuthorized(req: http.IncomingMessage, url: URL, expectedToken?: string): boolean {
-  if (!expectedToken) return true;
+function isLoopbackHost(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  return LOOPBACK_HOST_PATTERN.test(hostHeader.trim());
+}
+
+function isAuthorized(req: http.IncomingMessage, expectedToken: string): boolean {
   const auth = req.headers.authorization;
-  if (auth === `Bearer ${expectedToken}`) return true;
-  if (url.searchParams.get('token') === expectedToken) return true;
-  return false;
+  if (typeof auth !== 'string') return false;
+  const expected = Buffer.from(`Bearer ${expectedToken}`, 'utf8');
+  const provided = Buffer.from(auth, 'utf8');
+  if (provided.length !== expected.length) return false;
+  return crypto.timingSafeEqual(provided, expected);
 }
 
 export class SidecarRpcServer {
@@ -45,7 +63,10 @@ export class SidecarRpcServer {
 
   async start(): Promise<number> {
     const host = this.options.host || '127.0.0.1';
-    const expectedToken = this.options.token?.trim() || undefined;
+    const expectedToken = this.options.token?.trim();
+    if (!expectedToken) {
+      throw new Error('SidecarRpcServer requires a non-empty authentication token');
+    }
 
     this.unsubscribeBroadcast = ipcBus.subscribeBroadcast((channel, payload) => {
       const frame = `data: ${JSON.stringify({ channel, payload })}\n\n`;
@@ -59,27 +80,32 @@ export class SidecarRpcServer {
     });
 
     this.server = http.createServer(async (req, res) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Cache-Control', 'no-store');
 
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
+      // Single-consumer localhost RPC server owned exclusively by the Tauri host:
+      // never emit CORS headers, reject browser cross-origin/preflight requests,
+      // and reject non-loopback Host headers (DNS rebinding protection).
+      if (
+        req.method === 'OPTIONS' ||
+        req.headers.origin !== undefined ||
+        !isLoopbackHost(req.headers.host)
+      ) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Forbidden' }));
+        return;
+      }
+
+      if (!isAuthorized(req, expectedToken)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
         return;
       }
 
       const url = new URL(req.url || '/', `http://${host}:${this.options.port}`);
 
-      if (url.pathname === '/healthz') {
+      if (req.method === 'GET' && url.pathname === '/healthz') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, homeDir: getHomePath() }));
-        return;
-      }
-
-      if (!isAuthorized(req, url, expectedToken)) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+        res.end(JSON.stringify({ ok: true }));
         return;
       }
 

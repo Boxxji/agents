@@ -51,7 +51,7 @@ const representationService = new RepresentationService(
 async function bootstrap(): Promise<void> {
   const mcpMode = isMcpMode() || process.env.HANZO_AGENTS_MCP === '1';
   const port = Number(process.env.HANZO_AGENTS_PORT || '13880');
-  const token = process.env.HANZO_AGENTS_TOKEN;
+  const token = process.env.HANZO_AGENTS_TOKEN?.trim() || crypto.randomBytes(24).toString('hex');
 
   registerTerminalHandlers(() => agentHooksService);
   registerPersistenceHandlers(() => database);

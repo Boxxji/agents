@@ -166,17 +166,18 @@ export class InstrumentationMcpServer {
   }
 
   async start(): Promise<void> {
-    // Create HTTP server
-    this.httpServer = http.createServer(async (req, res) => {
-      // Set CORS headers for local development
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
+    const loopbackHostPattern = /^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/i;
 
-      // Handle preflight
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
+    // Create HTTP server bound strictly to loopback (no wildcard CORS)
+    this.httpServer = http.createServer(async (req, res) => {
+      if (
+        req.method === 'OPTIONS' ||
+        req.headers.origin !== undefined ||
+        !req.headers.host ||
+        !loopbackHostPattern.test(req.headers.host.trim())
+      ) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
         return;
       }
 
@@ -234,8 +235,8 @@ export class InstrumentationMcpServer {
     // Start listening
     await new Promise<void>((resolve, reject) => {
       this.httpServer!.on('error', reject);
-      this.httpServer!.listen(MCP_PORT, () => {
-        console.log(`[MCP] Server started on http://localhost:${MCP_PORT}/mcp`);
+      this.httpServer!.listen(MCP_PORT, '127.0.0.1', () => {
+        console.log(`[MCP] Server started on http://127.0.0.1:${MCP_PORT}/mcp`);
         resolve();
       });
     });
