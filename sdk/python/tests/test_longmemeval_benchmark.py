@@ -404,3 +404,223 @@ def test_cli_generates_raw_json_and_markdown(tmp_path: Path):
     md_text = out_md.read_text(encoding="utf-8")
     assert "| `hybrid_scope_policy` |" in md_text
     assert "| `vector_top_k` |" in md_text
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_transport_kv_responses_decode_json_like_go_raw_message():
+    """Verify KV set/get/list responses emit decoded JSON matching Go json.RawMessage."""
+    transport = ControlPlaneMemoryTransport()
+    headers = {
+        "X-Actor-ID": "actor-wire",
+        "X-Session-ID": "sess-wire",
+        "X-Workflow-ID": "wf-wire",
+    }
+
+    set_resp = await transport.handle_request(
+        "POST",
+        "http://inmemory.hanzo.local/v1/memory/set",
+        json={"key": "numeric_str", "data": "123", "scope": "actor"},
+        headers=headers,
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["data"] == "123"
+    assert isinstance(set_resp.json()["data"], str)
+
+    get_explicit = await transport.handle_request(
+        "POST",
+        "http://inmemory.hanzo.local/v1/memory/get",
+        json={"key": "numeric_str", "scope": "actor"},
+        headers=headers,
+    )
+    assert get_explicit.status_code == 200
+    assert get_explicit.json()["data"] == "123"
+
+    get_fallback = await transport.handle_request(
+        "POST",
+        "http://inmemory.hanzo.local/v1/memory/get",
+        json={"key": "numeric_str"},
+        headers=headers,
+    )
+    assert get_fallback.status_code == 200
+    assert get_fallback.json()["data"] == "123"
+
+    list_resp = await transport.handle_request(
+        "GET",
+        "http://inmemory.hanzo.local/v1/memory/list",
+        params={"scope": "actor"},
+        headers=headers,
+    )
+    assert list_resp.status_code == 200
+    assert list_resp.json()[0]["data"] == "123"
+
+    # Dict payloads are also returned directly (not JSON-stringified)
+    await transport.handle_request(
+        "POST",
+        "http://inmemory.hanzo.local/v1/memory/set",
+        json={"key": "obj_val", "data": {"nested": "123", "n": 123}, "scope": "actor"},
+        headers=headers,
+    )
+    get_obj = await transport.handle_request(
+        "POST",
+        "http://inmemory.hanzo.local/v1/memory/get",
+        json={"key": "obj_val", "scope": "actor"},
+        headers=headers,
+    )
+    assert get_obj.json()["data"] == {"nested": "123", "n": 123}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hybrid_policy_delete_clears_event_history_for_sequence_recall():
+    """Ingesting to-01 then deleting its entity/attribute must abstain without resurrecting events."""
+    from benchmarks.longmemeval.dataset import MemoryTurn
+    from benchmarks.longmemeval.policies import HybridScopePolicy
+
+    cases = build_longmemeval_dataset(seed=1347, categories=["temporal_ordering"])
+    to_01 = next(c for c in cases if c.case_id == "to-01")
+
+    embedder = DeterministicHashEmbedder(dim=128, seed=1347)
+    policy = HybridScopePolicy(embedder=embedder, min_score=0.45)
+    client = InMemoryHanzoAgentsClient()
+
+    for turn in to_01.turns:
+        await policy.ingest(client, turn)
+
+    # Sanity check: before delete, sequence recall succeeds
+    before = await policy.recall(client, to_01.query)
+    assert not before.abstained
+    assert before.ordered_answers == list(to_01.expected_order)
+
+    # Delete the event-backed fact
+    delete_turn = MemoryTurn(
+        turn_id="to-01-delete",
+        actor_id=to_01.query.actor_id,
+        session_id=to_01.query.session_id,
+        workflow_id=to_01.query.workflow_id,
+        scope="actor",
+        timestamp="2026-09-01T00:00:00Z",
+        entity=to_01.query.entity,
+        attribute=to_01.query.attribute,
+        value="",
+        statement=f"Delete {to_01.query.entity} {to_01.query.attribute}.",
+        action="delete",
+    )
+    await policy.ingest(client, delete_turn)
+
+    after = await policy.recall(client, to_01.query)
+    assert after.abstained is True
+    assert after.answer is None
+    assert after.ordered_answers == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hybrid_policy_global_delete_removes_global_vectors():
+    """Deleting a global-scope fact (cs-09) must clear global vectors so fallback cannot resurrect it."""
+    from benchmarks.longmemeval.dataset import MemoryTurn
+    from benchmarks.longmemeval.policies import HybridScopePolicy
+
+    cases = build_longmemeval_dataset(seed=1347, categories=["cross_session_retrieval"])
+    cs_09 = next(c for c in cases if c.case_id == "cs-09")
+
+    embedder = DeterministicHashEmbedder(dim=128, seed=1347)
+    policy = HybridScopePolicy(embedder=embedder, min_score=0.45)
+    client = InMemoryHanzoAgentsClient()
+
+    for turn in cs_09.turns:
+        await policy.ingest(client, turn)
+
+    before = await policy.recall(client, cs_09.query)
+    assert not before.abstained
+    assert before.answer == cs_09.expected_answer
+
+    global_turn = next(t for t in cs_09.turns if t.scope == "global")
+    delete_turn = MemoryTurn(
+        turn_id="cs-09-global-delete",
+        actor_id=global_turn.actor_id,
+        session_id=global_turn.session_id,
+        workflow_id=global_turn.workflow_id,
+        scope="global",
+        timestamp="2026-09-01T00:00:00Z",
+        entity=global_turn.entity,
+        attribute=global_turn.attribute,
+        value="",
+        statement=f"Delete global {global_turn.entity} {global_turn.attribute}.",
+        action="delete",
+    )
+    await policy.ingest(client, delete_turn)
+
+    after = await policy.recall(client, cs_09.query)
+    assert after.abstained is True
+    assert after.answer is None
+
+
+@pytest.mark.unit
+def test_category_filter_preserves_exact_seeded_cases():
+    """Filtering --categories with seed 43 must yield the exact same cases as the full corpus slice."""
+    full_corpus = build_longmemeval_dataset(seed=43)
+    filtered_abstention = build_longmemeval_dataset(seed=43, categories=["abstention"])
+    expected_abstention = [c for c in full_corpus if c.category == "abstention"]
+    assert filtered_abstention == expected_abstention
+
+    filtered_multi = build_longmemeval_dataset(
+        seed=43, categories=["cross_session_retrieval", "temporal_ordering"]
+    )
+    expected_multi = [
+        *[c for c in full_corpus if c.category == "cross_session_retrieval"],
+        *[c for c in full_corpus if c.category == "temporal_ordering"],
+    ]
+    assert filtered_multi == expected_multi
+
+
+@pytest.mark.functional
+def test_cli_filtered_categories_sweep_uses_same_filtered_cases(tmp_path: Path):
+    """--categories abstention --sweep-thresholds must sweep the exact filtered cases."""
+    out_json = tmp_path / "abstention_sweep.json"
+
+    rc = cli_main(
+        [
+            "--seed",
+            "43",
+            "--categories",
+            "abstention",
+            "--policies",
+            "vector_thresholded",
+            "--threshold",
+            "0.45",
+            "--top-k",
+            "8",
+            "--sweep-thresholds",
+            "--output",
+            str(out_json),
+            "--quiet",
+        ]
+    )
+    assert rc == 0
+
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["config"]["categories"] == ["abstention"]
+    assert payload["config"]["total_cases"] == 10
+    baseline = payload["scores"][0]
+    sweep_at_45 = next(
+        row for row in payload["threshold_sweep"] if row["min_score"] == 0.45
+    )
+    assert sweep_at_45["exact_match"] == baseline["exact_match"]
+    assert sweep_at_45["abstention_f1"] == baseline["abstention_f1"]
+    assert sweep_at_45["false_positive_rate"] == baseline["false_positive_rate"]
+    assert sweep_at_45["avg_retrieval_tokens"] == baseline["avg_retrieval_tokens"]
+
+    # Confirm the filtered sweep matches categories=["abstention"] and differs from unfiltered 50-case sweep
+    direct_filtered = asyncio.run(
+        run_threshold_sweep(seed=43, categories=["abstention"], thresholds=(0.0, 0.45))
+    )
+    full_sweep = asyncio.run(run_threshold_sweep(seed=43, thresholds=(0.0, 0.45)))
+    filtered_at_0 = next(
+        row for row in payload["threshold_sweep"] if row["min_score"] == 0.0
+    )
+    direct_at_0 = next(row for row in direct_filtered if row["min_score"] == 0.0)
+    full_at_0 = next(row for row in full_sweep if row["min_score"] == 0.0)
+    assert filtered_at_0 == direct_at_0
+    assert filtered_at_0["exact_match"] < full_at_0["exact_match"]
+

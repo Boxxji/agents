@@ -233,6 +233,18 @@ class ControlPlaneMemoryTransport:
             {"error": "not_found", "message": f"Unhandled route {method_upper} {path}"},
         )
 
+    @staticmethod
+    def _serialize_kv_record(rec: StoredKVRecord) -> Dict[str, Any]:
+        """Serialize a stored KV record matching Go's `json.RawMessage` wire format."""
+        return {
+            "key": rec.key,
+            "data": json.loads(rec.data_json),
+            "scope": rec.scope,
+            "scope_id": rec.scope_id,
+            "created_at": rec.created_at,
+            "updated_at": rec.updated_at,
+        }
+
     def _handle_set(
         self, payload: Dict[str, Any], headers: Optional[Dict[str, str]]
     ) -> TransportResponse:
@@ -270,17 +282,7 @@ class ControlPlaneMemoryTransport:
                 agent_id=self._header(headers, "X-Agent-Node-ID"),
             )
         )
-        return TransportResponse(
-            200,
-            {
-                "key": rec.key,
-                "data": rec.data_json,
-                "scope": rec.scope,
-                "scope_id": rec.scope_id,
-                "created_at": rec.created_at,
-                "updated_at": rec.updated_at,
-            },
-        )
+        return TransportResponse(200, self._serialize_kv_record(rec))
 
     def _handle_get(
         self, payload: Dict[str, Any], headers: Optional[Dict[str, str]]
@@ -299,17 +301,7 @@ class ControlPlaneMemoryTransport:
                 return TransportResponse(
                     404, {"error": "not_found", "message": "Memory key not found"}
                 )
-            return TransportResponse(
-                200,
-                {
-                    "key": rec.key,
-                    "data": rec.data_json,
-                    "scope": rec.scope,
-                    "scope_id": rec.scope_id,
-                    "created_at": rec.created_at,
-                    "updated_at": rec.updated_at,
-                },
-            )
+            return TransportResponse(200, self._serialize_kv_record(rec))
 
         # Exact hierarchical fallback order from control-plane/internal/handlers/memory.go:189
         for scope in self.SCOPE_HIERARCHY:
@@ -319,17 +311,7 @@ class ControlPlaneMemoryTransport:
                     scope_id = "global"
                 rec = self._kv.get((scope, scope_id, str(key)))
                 if rec is not None:
-                    return TransportResponse(
-                        200,
-                        {
-                            "key": rec.key,
-                            "data": rec.data_json,
-                            "scope": rec.scope,
-                            "scope_id": rec.scope_id,
-                            "created_at": rec.created_at,
-                            "updated_at": rec.updated_at,
-                        },
-                    )
+                    return TransportResponse(200, self._serialize_kv_record(rec))
         return TransportResponse(
             404, {"error": "not_found", "message": "Memory key not found in any scope"}
         )
@@ -381,14 +363,7 @@ class ControlPlaneMemoryTransport:
             )
         scope, scope_id = self._resolve_scope(headers, str(scope_param))
         matches = [
-            {
-                "key": rec.key,
-                "data": rec.data_json,
-                "scope": rec.scope,
-                "scope_id": rec.scope_id,
-                "created_at": rec.created_at,
-                "updated_at": rec.updated_at,
-            }
+            self._serialize_kv_record(rec)
             for (sc, sid, _), rec in sorted(self._kv.items())
             if sc == scope and sid == scope_id
         ]

@@ -575,22 +575,31 @@ class HybridScopePolicy(BaseMemoryPolicy):
         key = canonical_key(turn.entity, turn.attribute)
         actor_client = iface.actor(turn.actor_id)
         target = self._scope_client(iface, turn.scope, turn)
+        vec_target: Any = iface.global_scope if turn.scope == "global" else actor_client
 
         if turn.action == "delete":
-            # Delete KV record from target scope + actor scope + vectors + event history.
+            # Delete KV record from target scope + actor scope + event history + scoped vectors.
             for sc_client in (target, actor_client):
                 try:
                     await sc_client.delete(key)
                 except TransportHTTPError as exc:
                     if exc.status_code != 404:
                         raise
-            vec_hits = await actor_client.similarity_search(
+            event_prefix = f"event:{key}:"
+            for existing_key in await actor_client.list_keys():
+                if existing_key.startswith(event_prefix):
+                    try:
+                        await actor_client.delete(existing_key)
+                    except TransportHTTPError as exc:
+                        if exc.status_code != 404:
+                            raise
+            vec_hits = await vec_target.similarity_search(
                 self.embedder.embed(f"{turn.entity} {turn.attribute}"),
                 top_k=50,
                 filters={"entity": turn.entity, "attribute": turn.attribute},
             )
             for hit in vec_hits:
-                await actor_client.delete_vector(str(hit["key"]))
+                await vec_target.delete_vector(str(hit["key"]))
             return
 
         payload = {
@@ -613,7 +622,6 @@ class HybridScopePolicy(BaseMemoryPolicy):
             await actor_client.set(event_key, payload)
 
         # Also index a vector in the appropriate scope for semantic fallback
-        vec_target: Any = iface.global_scope if turn.scope == "global" else actor_client
         await vec_target.set_vector(
             turn.turn_id,
             self.embedder.embed(f"{turn.entity} {turn.attribute} {turn.statement}"),

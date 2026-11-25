@@ -782,9 +782,14 @@ def build_longmemeval_dataset(
         "cross_session_retrieval": _build_cross_session_retrieval,
     }
     selected = list(categories) if categories else list(ALL_CATEGORIES)
-    cases: List[BenchmarkCase] = []
     for cat in selected:
         if cat not in builders:
             raise ValueError(f"Unknown category: {cat!r}. Expected one of {ALL_CATEGORIES}")
-        cases.extend(builders[cat](rng))
+
+    # Generate the full corpus in canonical category order before filtering so
+    # seeded cases are completely invariant to `--categories` selection.
+    by_category = {cat: builders[cat](rng) for cat in ALL_CATEGORIES}
+    cases: List[BenchmarkCase] = []
+    for cat in selected:
+        cases.extend(by_category[cat])
     return cases

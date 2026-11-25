@@ -153,6 +153,8 @@ async def run_threshold_sweep(
     thresholds: Sequence[float] = (0.0, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75),
     top_k: int = 8,
     embedding_dim: int = 128,
+    categories: Optional[Sequence[str]] = None,
+    cases: Optional[Sequence[BenchmarkCase]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Evaluate `vector_thresholded` across multiple cosine similarity cutoffs to
@@ -160,12 +162,16 @@ async def run_threshold_sweep(
     """
     from .policies import VectorThresholdedPolicy
 
-    cases = build_longmemeval_dataset(seed=seed)
+    sweep_cases = (
+        list(cases)
+        if cases is not None
+        else build_longmemeval_dataset(seed=seed, categories=categories)
+    )
     embedder = DeterministicHashEmbedder(dim=embedding_dim, seed=seed)
     rows: List[Dict[str, Any]] = []
     for thr in thresholds:
         pol = VectorThresholdedPolicy(embedder=embedder, min_score=thr, top_k=top_k)
-        sc = await evaluate_policy(pol, cases)
+        sc = await evaluate_policy(pol, sweep_cases)
         rows.append(
             {
                 "min_score": thr,
@@ -264,6 +270,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 seed=args.seed,
                 top_k=max(args.top_k, 8),
                 embedding_dim=args.embedding_dim,
+                categories=args.categories,
             )
         )
 
