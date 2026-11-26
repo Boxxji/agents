@@ -623,6 +623,24 @@ class DurableReplayEngine:
                 ):
                     os._exit(CRASH_EXIT_CODE)
 
+            # Verify all recorded completed and pending activities were consumed
+            # before marking the workflow completed (fail-closed against shortened definitions).
+            if len(steps) < len(completed_history):
+                unconsumed_ids = [ev.step_id for ev in completed_history[len(steps) :]]
+                raise NonDeterministicReplayError(
+                    f"Replay definition omitted recorded completed activities: "
+                    f"provided {len(steps)} steps, but history recorded "
+                    f"{len(completed_history)} completed activities "
+                    f"(unconsumed={unconsumed_ids!r})"
+                )
+            if pending_scheduled is not None:
+                raise NonDeterministicReplayError(
+                    f"Replay definition omitted pending scheduled activity: "
+                    f"step_id={pending_scheduled.step_id!r}, "
+                    f"activity_type={pending_scheduled.activity_type!r}, "
+                    f"idempotency_key={pending_scheduled.idempotency_key!r}"
+                )
+
             # All steps completed — persist WorkflowCompleted.
             seq += 1
             self._append_timed(

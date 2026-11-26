@@ -22,6 +22,7 @@ from benchmarks.durable_replay import (
     EventType,
     ExternalSideEffectLedger,
     InvalidIdentifierError,
+    JournalEvent,
     NonDeterministicReplayError,
     RunStatus,
     SqliteWalCheckpointStore,
@@ -35,6 +36,7 @@ from benchmarks.durable_replay import (
     run_full_benchmark,
     run_multi_crash_gauntlet,
     run_nondeterminism_divergence_suite,
+    run_trivial_overhead_crossover,
 )
 from hanzo_agents.agent_workflow import AgentWorkflow
 
@@ -734,3 +736,244 @@ def test_full_benchmark_runner_and_artifact_generation(tmp_path: Path) -> None:
     # Ensure no absolute user home paths leak into artifacts.
     assert "/Users/" not in md
     assert "/home/" not in md
+
+
+# ---------------------------------------------------------------------------
+# 10. Regression Tests for Codex Review Findings (PR #122)
+# ---------------------------------------------------------------------------
+
+
+def test_atomic_jsonl_truncates_torn_tail_preserving_multi_signal_resume(
+    tmp_path: Path,
+) -> None:
+    """Truncating an unterminated torn tail prevents O_APPEND from corrupting WorkflowResumed."""
+    root = tmp_path.resolve()
+    store = AtomicJsonCheckpointStore(root / "torn_multi_sig")
+    ledger = ExternalSideEffectLedger(root / "torn_multi_sig_effects.sqlite")
+    engine = DurableReplayEngine(store, external_ledger=ledger)
+    steps = [
+        StepSpec("step_1", "stage_a", {"k": 1}),
+        StepSpec("step_2", "stage_b", {"k": 2}, await_signal="go"),
+        StepSpec("step_3", "stage_c", {"k": 3}, await_signal="next"),
+    ]
+    try:
+        tel1 = engine.activate(
+            org="org-torn-sig",
+            workflow_id="wf-torn-sig",
+            run_id="run-torn-sig",
+            actor_id="actor-torn",
+            steps=steps,
+        )
+        assert tel1.status == RunStatus.SUSPENDED.value
+        assert tel1.awaiting_signal == "go"
+
+        # Inject unterminated torn JSON tail directly into journal.jsonl.
+        journal_files = list((root / "torn_multi_sig").rglob("journal.jsonl"))
+        assert len(journal_files) == 1
+        journal_path = journal_files[0]
+        with journal_path.open("ab") as fh:
+            fh.write(b'{"sequence":999,"event_type":"TRUNCAT')
+
+        # Resume with 'go': torn tail must be truncated before WorkflowResumed('go') is appended,
+        # step_2 runs, and the workflow suspends waiting for 'next'.
+        tel2 = engine.activate(
+            org="org-torn-sig",
+            workflow_id="wf-torn-sig",
+            run_id="run-torn-sig",
+            actor_id="actor-torn",
+            steps=steps,
+            delivered_signals={"go": {"ok": True}},
+        )
+        assert tel2.status == RunStatus.SUSPENDED.value
+        assert tel2.awaiting_signal == "next"
+        assert tel2.replayed_steps == 1
+        assert tel2.executed_steps == 1
+
+        # Every line in journal.jsonl must now be valid JSON, including WorkflowResumed('go').
+        raw_lines = journal_path.read_text(encoding="utf-8").splitlines()
+        parsed_events = [json.loads(line) for line in raw_lines if line.strip()]
+        resumed_signals = [
+            ev["payload"]["signal_name"]
+            for ev in parsed_events
+            if ev["event_type"] == EventType.WORKFLOW_RESUMED.value
+        ]
+        assert resumed_signals == ["go"]
+
+        # Next activation with 'next' must NOT re-suspend on 'go' and must complete step_3 cleanly.
+        tel3 = engine.activate(
+            org="org-torn-sig",
+            workflow_id="wf-torn-sig",
+            run_id="run-torn-sig",
+            actor_id="actor-torn",
+            steps=steps,
+            delivered_signals={"next": {"ok": True}},
+        )
+        assert tel3.status == RunStatus.COMPLETED.value
+        assert tel3.replayed_steps == 2
+        assert tel3.executed_steps == 1
+        assert ledger.get_applied_counts("org-torn-sig", "run-torn-sig") == {
+            "step_1": 1,
+            "step_2": 1,
+            "step_3": 1,
+        }
+
+        # Direct append_event() without a prior read must also truncate an unterminated tail.
+        with journal_path.open("ab") as fh:
+            fh.write(b'{"partial_direct_append":')
+        events_before = store.load_events("org-torn-sig", "run-torn-sig")
+        next_seq = events_before[-1].sequence + 1
+        # Re-inject torn tail right before append_event() without calling load_events().
+        with journal_path.open("ab") as fh:
+            fh.write(b'{"partial_before_append":')
+        store.append_event(
+            JournalEvent(
+                sequence=next_seq,
+                previous_sequence=next_seq - 1,
+                event_type=EventType.WORKFLOW_RESUMED,
+                org="org-torn-sig",
+                workflow_id="wf-torn-sig",
+                run_id="run-torn-sig",
+                execution_id="exec-direct",
+                actor_id="actor-torn",
+                round_idx=0,
+                payload={"signal_name": "post_direct", "signal_payload": {}},
+                pid=os.getpid(),
+                timestamp="2026-01-01T00:00:00+00:00",
+            )
+        )
+        events_after = store.load_events("org-torn-sig", "run-torn-sig")
+        assert events_after[-1].sequence == next_seq
+        assert events_after[-1].payload["signal_name"] == "post_direct"
+    finally:
+        store.close()
+        ledger.close()
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [BackendKind.SQLITE_WAL, BackendKind.ATOMIC_JSONL],
+)
+def test_shortened_replay_definition_rejects_unconsumed_pending_and_completed(
+    tmp_path: Path, backend: BackendKind
+) -> None:
+    """Shortened replay definitions leaving pending or completed activities unconsumed fail closed."""
+    root = tmp_path.resolve()
+    store_path = (
+        root / f"short_{backend.value}.sqlite"
+        if backend == BackendKind.SQLITE_WAL
+        else root / f"short_{backend.value}_jsonl"
+    )
+    ledger_path = root / f"short_{backend.value}_effects.sqlite"
+    full_steps = [
+        StepSpec("s1", "stage_1", {"v": 1}),
+        StepSpec("s2", "stage_2", {"v": 2}),
+    ]
+
+    # Case 1: Crash AFTER_EFFECT_BEFORE_ACK on s2 so s1 is completed and s2 is pending_scheduled.
+    crash_out = invoke_worker_subprocess(
+        work_dir=root / f"crash_{backend.value}",
+        backend=backend,
+        store_path=store_path,
+        external_ledger_path=ledger_path,
+        org="org-short",
+        workflow_id="wf-short-pending",
+        run_id="run-short-pending",
+        actor_id="actor-short",
+        steps=full_steps,
+        crash_plan=CrashPlan(
+            mode=CrashMode.AFTER_EFFECT_BEFORE_ACK,
+            target_step_index=1,
+            enable_idempotency_guard=True,
+        ),
+        tag="crash_s2",
+    )
+    assert crash_out.crashed_as_expected is True
+
+    store = (
+        SqliteWalCheckpointStore(store_path)
+        if backend == BackendKind.SQLITE_WAL
+        else AtomicJsonCheckpointStore(store_path)
+    )
+    ledger = ExternalSideEffectLedger(ledger_path)
+    engine = DurableReplayEngine(store, external_ledger=ledger)
+    try:
+        # Resuming with only [s1] leaves pending_scheduled=s2 unconsumed -> MUST fail closed.
+        with pytest.raises(NonDeterministicReplayError, match="pending scheduled activity"):
+            engine.activate(
+                org="org-short",
+                workflow_id="wf-short-pending",
+                run_id="run-short-pending",
+                actor_id="actor-short",
+                steps=[full_steps[0]],
+            )
+        pending_events = store.load_events("org-short", "run-short-pending")
+        assert EventType.WORKFLOW_COMPLETED not in [e.event_type for e in pending_events]
+        assert pending_events[-1].event_type == EventType.WORKFLOW_FAILED
+
+        # Case 2: Complete s1 and s2, suspend on s3, then resume with shortened [s1] only.
+        three_steps = [
+            StepSpec("s1", "stage_1", {"v": 1}),
+            StepSpec("s2", "stage_2", {"v": 2}),
+            StepSpec("s3", "stage_3", {"v": 3}, await_signal="go"),
+        ]
+        tel = engine.activate(
+            org="org-short",
+            workflow_id="wf-short-completed",
+            run_id="run-short-completed",
+            actor_id="actor-short",
+            steps=three_steps,
+        )
+        assert tel.status == RunStatus.SUSPENDED.value
+
+        with pytest.raises(NonDeterministicReplayError, match="completed activities"):
+            engine.activate(
+                org="org-short",
+                workflow_id="wf-short-completed",
+                run_id="run-short-completed",
+                actor_id="actor-short",
+                steps=[three_steps[0]],
+                delivered_signals={"go": {"ok": True}},
+            )
+        completed_events = store.load_events("org-short", "run-short-completed")
+        assert EventType.WORKFLOW_COMPLETED not in [e.event_type for e in completed_events]
+        assert completed_events[-1].event_type == EventType.WORKFLOW_FAILED
+    finally:
+        store.close()
+        ledger.close()
+
+
+def test_repeated_benchmark_and_overhead_in_same_work_dir_stay_isolated(
+    tmp_path: Path,
+) -> None:
+    """Reusing work_dir across repeated benchmark or overhead invocations stays isolated."""
+    shared_work = (tmp_path / "reused_work").resolve()
+
+    ov1 = run_trivial_overhead_crossover(
+        work_dir=shared_work, trivial_runs=3, six_step_runs=2
+    )
+    ov2 = run_trivial_overhead_crossover(
+        work_dir=shared_work, trivial_runs=3, six_step_runs=2
+    )
+    for ov in (ov1, ov2):
+        for regime in ("trivial_1_step", "standard_6_step"):
+            for backend_name in (
+                BackendKind.SQLITE_WAL.value,
+                BackendKind.ATOMIC_JSONL.value,
+            ):
+                stats = ov[regime][backend_name]
+                assert stats["checkpoint_write_latency"]["count"] > 0
+                assert stats["total_store_bytes"] > 0
+
+    rep1 = run_full_benchmark(num_steps=3, trivial_runs=2, work_dir=shared_work)
+    rep2 = run_full_benchmark(num_steps=3, trivial_runs=2, work_dir=shared_work)
+    for rep in (rep1, rep2):
+        summary_a = rep["experiment_a_crash_at_every_step"]["summary"]
+        for cohort_name, cohort in summary_a.items():
+            assert cohort["all_crashed_hard_exit_99"] is True, cohort_name
+        assert summary_a["sqlite_wal_durable"]["exactly_once_rate"] == 1.0
+        assert summary_a["atomic_jsonl_durable"]["exactly_once_rate"] == 1.0
+
+        ov_d = rep["experiment_d_negative_overhead_crossover"]["trivial_1_step"]
+        assert ov_d["sqlite_wal"]["checkpoint_write_latency"]["count"] > 0
+        assert ov_d["atomic_jsonl"]["checkpoint_write_latency"]["count"] > 0
+

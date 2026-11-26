@@ -593,19 +593,60 @@ class AtomicJsonCheckpointStore(CheckpointStore):
             return []
         events: List[JournalEvent] = []
         raw_bytes = journal_path.read_bytes()
-        for line_bytes in raw_bytes.splitlines(keepends=True):
-            if not line_bytes.endswith(b"\n"):
-                # Tolerate torn tail line if a hard OS crash interrupted a write.
+        total_len = len(raw_bytes)
+        pos = 0
+        last_valid_end = 0
+        needs_truncate = False
+
+        while pos < total_len:
+            nl = raw_bytes.find(b"\n", pos)
+            if nl == -1:
+                # Unterminated torn tail left by a hard OS crash — truncate before
+                # any future O_APPEND can concatenate a new record onto the torn bytes.
+                needs_truncate = True
+                break
+            line_bytes = raw_bytes[pos : nl + 1]
+            pos = nl + 1
+            try:
+                text = line_bytes.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                if pos == total_len:
+                    needs_truncate = True
                 continue
-            text = line_bytes.decode("utf-8").strip()
             if not text:
+                last_valid_end = pos
                 continue
             try:
                 events.append(JournalEvent.from_dict(json.loads(text)))
+                last_valid_end = pos
             except (json.JSONDecodeError, KeyError, ValueError):
+                if pos == total_len:
+                    needs_truncate = True
                 continue
+
+        if needs_truncate and last_valid_end < total_len:
+            tfd = os.open(str(journal_path), os.O_WRONLY)
+            try:
+                os.ftruncate(tfd, last_valid_end)
+                os.fsync(tfd)
+            finally:
+                os.close(tfd)
+
         events.sort(key=lambda e: e.sequence)
         return events
+
+    def _repair_torn_tail_unlocked(self, journal_path: Path) -> None:
+        """Ensure journal.jsonl ends cleanly on a newline before O_APPEND writes."""
+        if not journal_path.exists():
+            return
+        size = journal_path.stat().st_size
+        if size == 0:
+            return
+        with journal_path.open("rb") as fh:
+            fh.seek(size - 1)
+            last_byte = fh.read(1)
+        if last_byte != b"\n":
+            self._read_journal_unlocked(journal_path)
 
     def load_events(self, org: str, run_id: str) -> List[JournalEvent]:
         rdir = self._run_dir(org, run_id)
@@ -696,6 +737,7 @@ class AtomicJsonCheckpointStore(CheckpointStore):
                 )
 
             journal_path = rdir / "journal.jsonl"
+            self._repair_torn_tail_unlocked(journal_path)
             line = (canonical_json(event.to_dict()) + "\n").encode("utf-8")
             jfd = os.open(
                 str(journal_path),

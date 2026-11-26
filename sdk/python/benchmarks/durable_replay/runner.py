@@ -487,6 +487,10 @@ def run_trivial_overhead_crossover(
     """Negative Regime #3: measure persistence fsync overhead on no-crash 1-step vs 6-step workflows."""
     from .engine import DurableReplayEngine
 
+    work_root = Path(work_dir).resolve()
+    work_root.mkdir(parents=True, exist_ok=True)
+    run_root = Path(tempfile.mkdtemp(prefix="overhead_run_", dir=str(work_root))).resolve()
+
     one_step = build_default_workflow(1)
     six_step = build_default_workflow(6)
     results: Dict[str, Any] = {}
@@ -501,7 +505,7 @@ def run_trivial_overhead_crossover(
             BackendKind.SQLITE_WAL,
             BackendKind.ATOMIC_JSONL,
         ):
-            bdir = (work_dir / f"overhead_{label}_{backend.value}").resolve()
+            bdir = (run_root / f"overhead_{label}_{backend.value}").resolve()
             bdir.mkdir(parents=True, exist_ok=True)
             store_path = _store_path_for(bdir, backend, f"{label}_{backend.value}")
             ledger_path = (bdir / f"{label}_{backend.value}_effects.sqlite").resolve()
@@ -616,8 +620,9 @@ def run_full_benchmark(
         tmp_ctx = tempfile.TemporaryDirectory(prefix="hanzo_durable_replay_")
         root = Path(tmp_ctx.name).resolve()
     else:
-        root = Path(work_dir).resolve()
-        root.mkdir(parents=True, exist_ok=True)
+        work_root = Path(work_dir).resolve()
+        work_root.mkdir(parents=True, exist_ok=True)
+        root = Path(tempfile.mkdtemp(prefix="benchmark_run_", dir=str(work_root))).resolve()
 
     try:
         # Experiment A: Primary crash-at-every-step matrix (real os._exit(99) subprocesses).
