@@ -1,0 +1,831 @@
+{
+  "benchmark": "hanzo-durable-workflow-replay-bench",
+  "hip": "HIP-1347",
+  "issue": "hanzoai/agents#85",
+  "generated_at_utc": "2026-11-26T20:55:02Z",
+  "host_environment": {
+    "goos": "linux",
+    "goarch": "amd64",
+    "go_version": "go1.26.5",
+    "num_cpu": 2
+  },
+  "honesty_notice": "All latency, storage, and I/O measurements are real local-disk wall-clock measurements on the authoring host running control-plane/internal/replay with FileCheckpointStore. No external LLM/Temporal cluster is invoked; figures must not be extrapolated to production cloud hardware without reproducing on target Hanzo infrastructure.",
+  "config": {
+    "seed": 42,
+    "checkpoint_interval": 8,
+    "fsync_trials": 3,
+    "scaling_trials": 15,
+    "tenants": 8,
+    "duplicate_webhooks_per_tenant": 5,
+    "trivial_trials": 20,
+    "negative_trials": 3,
+    "fsync_steps": [
+      10,
+      40,
+      100
+    ],
+    "scaling_steps": [
+      50,
+      200,
+      500
+    ],
+    "nr3_steps": 40
+  },
+  "zero_daemon_verification": {
+    "baseline_goroutines": 1,
+    "post_run_goroutines": 1,
+    "goroutine_delta": 0,
+    "idle_active_locks": 0,
+    "zero_daemons_passed": true
+  },
+  "crash_recovery_fsync": [
+    {
+      "mode": "stateless_retry",
+      "steps": 10,
+      "crash_step": 7,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.123,
+        "p99_ms": 0.134,
+        "mean_ms": 0.046
+      },
+      "recovery_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.143,
+        "p99_ms": 0.156,
+        "mean_ms": 0.053
+      },
+      "total_e2e_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.168,
+        "p99_ms": 0.183,
+        "mean_ms": 0.062
+      },
+      "duplicate_side_effects": 21,
+      "total_unique_side_effects": 30,
+      "duplicate_side_effect_pct": 70,
+      "mean_events_loaded": 0,
+      "mean_bytes_read_on_load": 0,
+      "storage_bytes_per_step": 0,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "steps": 10,
+      "crash_step": 7,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 1.068,
+        "p95_ms": 3.129,
+        "p99_ms": 3.312,
+        "mean_ms": 1.475
+      },
+      "recovery_latency": {
+        "p50_ms": 44.707,
+        "p95_ms": 47.8,
+        "p99_ms": 48.075,
+        "mean_ms": 45.751
+      },
+      "total_e2e_latency": {
+        "p50_ms": 150.875,
+        "p95_ms": 158.999,
+        "p99_ms": 159.721,
+        "mean_ms": 153.228
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 30,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 16,
+      "mean_bytes_read_on_load": 10863.33,
+      "storage_bytes_per_step": 2043.07,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "steps": 10,
+      "crash_step": 7,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.575,
+        "p99_ms": 0.626,
+        "mean_ms": 0.213
+      },
+      "recovery_latency": {
+        "p50_ms": 48.004,
+        "p95_ms": 53.878,
+        "p99_ms": 54.4,
+        "mean_ms": 50.179
+      },
+      "total_e2e_latency": {
+        "p50_ms": 161.263,
+        "p95_ms": 162.411,
+        "p99_ms": 162.513,
+        "mean_ms": 158.385
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 30,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 16,
+      "mean_bytes_read_on_load": 10863,
+      "storage_bytes_per_step": 2043.13,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "stateless_retry",
+      "steps": 40,
+      "crash_step": 30,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.115,
+        "p99_ms": 0.125,
+        "mean_ms": 0.043
+      },
+      "recovery_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.189,
+        "p99_ms": 0.206,
+        "mean_ms": 0.07
+      },
+      "total_e2e_latency": {
+        "p50_ms": 0,
+        "p95_ms": 0.189,
+        "p99_ms": 0.206,
+        "mean_ms": 0.07
+      },
+      "duplicate_side_effects": 90,
+      "total_unique_side_effects": 120,
+      "duplicate_side_effect_pct": 75,
+      "mean_events_loaded": 0,
+      "mean_bytes_read_on_load": 0,
+      "storage_bytes_per_step": 0,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "steps": 40,
+      "crash_step": 30,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0.74,
+        "p95_ms": 1.499,
+        "p99_ms": 1.566,
+        "mean_ms": 0.774
+      },
+      "recovery_latency": {
+        "p50_ms": 144.011,
+        "p95_ms": 145.404,
+        "p99_ms": 145.527,
+        "mean_ms": 143.536
+      },
+      "total_e2e_latency": {
+        "p50_ms": 561.212,
+        "p95_ms": 562.46,
+        "p99_ms": 562.571,
+        "mean_ms": 560.163
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 120,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 62,
+      "mean_bytes_read_on_load": 42600.67,
+      "storage_bytes_per_step": 1923.79,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "steps": 40,
+      "crash_step": 30,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0.472,
+        "p95_ms": 0.483,
+        "p99_ms": 0.484,
+        "mean_ms": 0.319
+      },
+      "recovery_latency": {
+        "p50_ms": 155.771,
+        "p95_ms": 158.008,
+        "p99_ms": 158.206,
+        "mean_ms": 154.609
+      },
+      "total_e2e_latency": {
+        "p50_ms": 625.312,
+        "p95_ms": 642.041,
+        "p99_ms": 643.528,
+        "mean_ms": 630.072
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 120,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 13,
+      "mean_bytes_read_on_load": 9704,
+      "storage_bytes_per_step": 1974.76,
+      "restored_checkpoint_rate_pct": 100
+    },
+    {
+      "mode": "stateless_retry",
+      "steps": 100,
+      "crash_step": 75,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0.531,
+        "p95_ms": 1.905,
+        "p99_ms": 2.027,
+        "mean_ms": 1.029
+      },
+      "recovery_latency": {
+        "p50_ms": 0.745,
+        "p95_ms": 2.083,
+        "p99_ms": 2.202,
+        "mean_ms": 1.215
+      },
+      "total_e2e_latency": {
+        "p50_ms": 1.281,
+        "p95_ms": 2.764,
+        "p99_ms": 2.896,
+        "mean_ms": 1.807
+      },
+      "duplicate_side_effects": 225,
+      "total_unique_side_effects": 300,
+      "duplicate_side_effect_pct": 75,
+      "mean_events_loaded": 0,
+      "mean_bytes_read_on_load": 0,
+      "storage_bytes_per_step": 0,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "steps": 100,
+      "crash_step": 75,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 4.77,
+        "p95_ms": 9.144,
+        "p99_ms": 9.533,
+        "mean_ms": 6.385
+      },
+      "recovery_latency": {
+        "p50_ms": 353.38,
+        "p95_ms": 366.265,
+        "p99_ms": 367.411,
+        "mean_ms": 355.587
+      },
+      "total_e2e_latency": {
+        "p50_ms": 1399.959,
+        "p95_ms": 1418.05,
+        "p99_ms": 1419.658,
+        "mean_ms": 1388.927
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 300,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 152,
+      "mean_bytes_read_on_load": 104911.33,
+      "storage_bytes_per_step": 1905.29,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "steps": 100,
+      "crash_step": 75,
+      "fsync": true,
+      "checkpoint_interval": 8,
+      "trials": 3,
+      "time_to_resume_latency": {
+        "p50_ms": 0.326,
+        "p95_ms": 0.574,
+        "p99_ms": 0.596,
+        "mean_ms": 0.406
+      },
+      "recovery_latency": {
+        "p50_ms": 379.308,
+        "p95_ms": 389.875,
+        "p99_ms": 390.815,
+        "mean_ms": 380.594
+      },
+      "total_e2e_latency": {
+        "p50_ms": 1524.459,
+        "p95_ms": 1805.328,
+        "p99_ms": 1830.295,
+        "mean_ms": 1624.51
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 300,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 7,
+      "mean_bytes_read_on_load": 5575,
+      "storage_bytes_per_step": 1955.8,
+      "restored_checkpoint_rate_pct": 100
+    }
+  ],
+  "recovery_scaling_pagecache": [
+    {
+      "mode": "stateless_retry",
+      "steps": 50,
+      "crash_step": 45,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 0.356,
+        "p95_ms": 0.673,
+        "p99_ms": 1.171,
+        "mean_ms": 0.414
+      },
+      "recovery_latency": {
+        "p50_ms": 0.396,
+        "p95_ms": 0.913,
+        "p99_ms": 1.784,
+        "mean_ms": 0.495
+      },
+      "total_e2e_latency": {
+        "p50_ms": 0.757,
+        "p95_ms": 1.272,
+        "p99_ms": 2.144,
+        "mean_ms": 0.843
+      },
+      "duplicate_side_effects": 675,
+      "total_unique_side_effects": 750,
+      "duplicate_side_effect_pct": 90,
+      "mean_events_loaded": 0,
+      "mean_bytes_read_on_load": 0,
+      "storage_bytes_per_step": 0,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "steps": 50,
+      "crash_step": 45,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 2.218,
+        "p95_ms": 3.173,
+        "p99_ms": 3.439,
+        "mean_ms": 2.324
+      },
+      "recovery_latency": {
+        "p50_ms": 7.164,
+        "p95_ms": 9.453,
+        "p99_ms": 10.697,
+        "mean_ms": 7.401
+      },
+      "total_e2e_latency": {
+        "p50_ms": 48.683,
+        "p95_ms": 53.793,
+        "p99_ms": 54.476,
+        "mean_ms": 49.176
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 750,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 92,
+      "mean_bytes_read_on_load": 63322.87,
+      "storage_bytes_per_step": 1916.7,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "steps": 50,
+      "crash_step": 45,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 0.433,
+        "p95_ms": 0.882,
+        "p99_ms": 1.483,
+        "mean_ms": 0.503
+      },
+      "recovery_latency": {
+        "p50_ms": 4.889,
+        "p95_ms": 9.398,
+        "p99_ms": 9.558,
+        "mean_ms": 5.189
+      },
+      "total_e2e_latency": {
+        "p50_ms": 48.802,
+        "p95_ms": 61.26,
+        "p99_ms": 63.55,
+        "mean_ms": 50.976
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 750,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 11,
+      "mean_bytes_read_on_load": 8326.67,
+      "storage_bytes_per_step": 1965.28,
+      "restored_checkpoint_rate_pct": 100
+    },
+    {
+      "mode": "stateless_retry",
+      "steps": 200,
+      "crash_step": 180,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 1.505,
+        "p95_ms": 4,
+        "p99_ms": 4,
+        "mean_ms": 1.719
+      },
+      "recovery_latency": {
+        "p50_ms": 1.827,
+        "p95_ms": 4,
+        "p99_ms": 4,
+        "mean_ms": 1.935
+      },
+      "total_e2e_latency": {
+        "p50_ms": 3.607,
+        "p95_ms": 4.423,
+        "p99_ms": 4.576,
+        "mean_ms": 3.355
+      },
+      "duplicate_side_effects": 2700,
+      "total_unique_side_effects": 3000,
+      "duplicate_side_effect_pct": 90,
+      "mean_events_loaded": 0,
+      "mean_bytes_read_on_load": 0,
+      "storage_bytes_per_step": 0,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "steps": 200,
+      "crash_step": 180,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 8.495,
+        "p95_ms": 11.976,
+        "p99_ms": 12.733,
+        "mean_ms": 8.311
+      },
+      "recovery_latency": {
+        "p50_ms": 26.824,
+        "p95_ms": 31.741,
+        "p99_ms": 31.799,
+        "mean_ms": 27.563
+      },
+      "total_e2e_latency": {
+        "p50_ms": 201.784,
+        "p95_ms": 222.85,
+        "p99_ms": 230.601,
+        "mean_ms": 199.66
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 3000,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 362,
+      "mean_bytes_read_on_load": 250692.33,
+      "storage_bytes_per_step": 1901.51,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "steps": 200,
+      "crash_step": 180,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 0.409,
+        "p95_ms": 0.852,
+        "p99_ms": 0.929,
+        "mean_ms": 0.444
+      },
+      "recovery_latency": {
+        "p50_ms": 19.212,
+        "p95_ms": 32.881,
+        "p99_ms": 37.803,
+        "mean_ms": 20.712
+      },
+      "total_e2e_latency": {
+        "p50_ms": 198.089,
+        "p95_ms": 240.18,
+        "p99_ms": 268.266,
+        "mean_ms": 203.54
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 3000,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 9,
+      "mean_bytes_read_on_load": 6995.87,
+      "storage_bytes_per_step": 1949.29,
+      "restored_checkpoint_rate_pct": 100
+    },
+    {
+      "mode": "stateless_retry",
+      "steps": 500,
+      "crash_step": 450,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 3.646,
+        "p95_ms": 8.272,
+        "p99_ms": 9.35,
+        "mean_ms": 4.454
+      },
+      "recovery_latency": {
+        "p50_ms": 4,
+        "p95_ms": 8.825,
+        "p99_ms": 10.099,
+        "mean_ms": 5.137
+      },
+      "total_e2e_latency": {
+        "p50_ms": 9.275,
+        "p95_ms": 14.352,
+        "p99_ms": 14.636,
+        "mean_ms": 9.831
+      },
+      "duplicate_side_effects": 6750,
+      "total_unique_side_effects": 7500,
+      "duplicate_side_effect_pct": 90,
+      "mean_events_loaded": 0,
+      "mean_bytes_read_on_load": 0,
+      "storage_bytes_per_step": 0,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "steps": 500,
+      "crash_step": 450,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 20.901,
+        "p95_ms": 24.885,
+        "p99_ms": 25.937,
+        "mean_ms": 21.12
+      },
+      "recovery_latency": {
+        "p50_ms": 66.262,
+        "p95_ms": 73.737,
+        "p99_ms": 75.56,
+        "mean_ms": 66.716
+      },
+      "total_e2e_latency": {
+        "p50_ms": 491.845,
+        "p95_ms": 536.359,
+        "p99_ms": 556.905,
+        "mean_ms": 491.438
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 7500,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 902,
+      "mean_bytes_read_on_load": 625565.33,
+      "storage_bytes_per_step": 1898.61,
+      "restored_checkpoint_rate_pct": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "steps": 500,
+      "crash_step": 450,
+      "fsync": false,
+      "checkpoint_interval": 8,
+      "trials": 15,
+      "time_to_resume_latency": {
+        "p50_ms": 0.273,
+        "p95_ms": 0.468,
+        "p99_ms": 0.506,
+        "mean_ms": 0.293
+      },
+      "recovery_latency": {
+        "p50_ms": 53.943,
+        "p95_ms": 65.108,
+        "p99_ms": 67.159,
+        "mean_ms": 54.157
+      },
+      "total_e2e_latency": {
+        "p50_ms": 531.235,
+        "p95_ms": 614.183,
+        "p99_ms": 632.334,
+        "mean_ms": 544.421
+      },
+      "duplicate_side_effects": 0,
+      "total_unique_side_effects": 7500,
+      "duplicate_side_effect_pct": 0,
+      "mean_events_loaded": 5,
+      "mean_bytes_read_on_load": 4214.8,
+      "storage_bytes_per_step": 1946.55,
+      "restored_checkpoint_rate_pct": 100
+    }
+  ],
+  "webhook_storm_multitenant": [
+    {
+      "mode": "stateless_retry",
+      "tenants": 8,
+      "deliveries_per_tenant": 5,
+      "steps_per_workflow": 10,
+      "activation_latency": {
+        "p50_ms": 0.056,
+        "p95_ms": 0.579,
+        "p99_ms": 0.715,
+        "mean_ms": 0.159
+      },
+      "expected_side_effects": 80,
+      "observed_side_effects": 400,
+      "duplicate_side_effects": 320,
+      "duplicate_side_effect_pct": 400,
+      "cross_tenant_violations": 0,
+      "idle_active_locks": 0
+    },
+    {
+      "mode": "full_history_replay",
+      "tenants": 8,
+      "deliveries_per_tenant": 5,
+      "steps_per_workflow": 10,
+      "activation_latency": {
+        "p50_ms": 1226.836,
+        "p95_ms": 1232.989,
+        "p99_ms": 1233.548,
+        "mean_ms": 1214.394
+      },
+      "expected_side_effects": 80,
+      "observed_side_effects": 80,
+      "duplicate_side_effects": 0,
+      "duplicate_side_effect_pct": 0,
+      "cross_tenant_violations": 0,
+      "idle_active_locks": 0
+    },
+    {
+      "mode": "checkpointed_replay",
+      "tenants": 8,
+      "deliveries_per_tenant": 5,
+      "steps_per_workflow": 10,
+      "activation_latency": {
+        "p50_ms": 1190.544,
+        "p95_ms": 1199.836,
+        "p99_ms": 1202.468,
+        "mean_ms": 1181.165
+      },
+      "expected_side_effects": 80,
+      "observed_side_effects": 80,
+      "duplicate_side_effects": 0,
+      "duplicate_side_effect_pct": 0,
+      "cross_tenant_violations": 0,
+      "idle_active_locks": 0
+    }
+  ],
+  "negative_regimes": {
+    "nr1_trivial_one_step": [
+      {
+        "mode": "stateless_retry",
+        "steps": 1,
+        "fsync": true,
+        "trials": 20,
+        "happy_path_latency": {
+          "p50_ms": 0.004,
+          "p95_ms": 0.008,
+          "p99_ms": 0.03,
+          "mean_ms": 0.006
+        },
+        "storage_bytes_per_step": 0
+      },
+      {
+        "mode": "checkpointed_replay",
+        "steps": 1,
+        "fsync": true,
+        "trials": 20,
+        "happy_path_latency": {
+          "p50_ms": 36.003,
+          "p95_ms": 39.815,
+          "p99_ms": 40.261,
+          "mean_ms": 35.763
+        },
+        "storage_bytes_per_step": 3346.1
+      }
+    ],
+    "nr2_large_binary_payload": [
+      {
+        "payload_strategy": "inline_256kb_blob",
+        "steps": 10,
+        "blob_bytes_per_step": 262144,
+        "fsync": true,
+        "trials": 3,
+        "happy_path_latency": {
+          "p50_ms": 400.301,
+          "p95_ms": 410.65,
+          "p99_ms": 411.57,
+          "mean_ms": 401.176
+        },
+        "recovery_latency": {
+          "p50_ms": 157.536,
+          "p95_ms": 167.096,
+          "p99_ms": 167.946,
+          "mean_ms": 160.733
+        },
+        "storage_bytes_per_step": 1085154.47,
+        "mean_bytes_read_on_load": 2451053.33
+      },
+      {
+        "payload_strategy": "vfs_content_hash_ref",
+        "steps": 10,
+        "blob_bytes_per_step": 262144,
+        "fsync": true,
+        "trials": 3,
+        "happy_path_latency": {
+          "p50_ms": 194.403,
+          "p95_ms": 200.234,
+          "p99_ms": 200.752,
+          "mean_ms": 193.676
+        },
+        "recovery_latency": {
+          "p50_ms": 51.107,
+          "p95_ms": 52.095,
+          "p99_ms": 52.182,
+          "mean_ms": 47.632
+        },
+        "storage_bytes_per_step": 1856.2,
+        "mean_bytes_read_on_load": 4889.33
+      }
+    ],
+    "nr3_checkpoint_frequency": [
+      {
+        "checkpoint_interval": 1,
+        "steps": 40,
+        "fsync": true,
+        "trials": 3,
+        "happy_path_latency": {
+          "p50_ms": 1123.389,
+          "p95_ms": 1159.33,
+          "p99_ms": 1162.524,
+          "mean_ms": 1119.327
+        },
+        "crash_recovery_latency": {
+          "p50_ms": 136.01,
+          "p95_ms": 137.347,
+          "p99_ms": 137.466,
+          "mean_ms": 136.156
+        },
+        "checkpoints_saved": 40,
+        "storage_bytes_per_step": 2084.74
+      },
+      {
+        "checkpoint_interval": 8,
+        "steps": 40,
+        "fsync": true,
+        "trials": 3,
+        "happy_path_latency": {
+          "p50_ms": 656.02,
+          "p95_ms": 773.843,
+          "p99_ms": 784.316,
+          "mean_ms": 692.654
+        },
+        "crash_recovery_latency": {
+          "p50_ms": 78.104,
+          "p95_ms": 83.384,
+          "p99_ms": 83.853,
+          "mean_ms": 77.981
+        },
+        "checkpoints_saved": 5,
+        "storage_bytes_per_step": 1776.73
+      },
+      {
+        "checkpoint_interval": 20,
+        "steps": 40,
+        "fsync": true,
+        "trials": 3,
+        "happy_path_latency": {
+          "p50_ms": 554.525,
+          "p95_ms": 583.615,
+          "p99_ms": 586.201,
+          "mean_ms": 563.204
+        },
+        "crash_recovery_latency": {
+          "p50_ms": 76.683,
+          "p95_ms": 81.738,
+          "p99_ms": 82.188,
+          "mean_ms": 78.341
+        },
+        "checkpoints_saved": 2,
+        "storage_bytes_per_step": 1753.59
+      }
+    ]
+  }
+}
