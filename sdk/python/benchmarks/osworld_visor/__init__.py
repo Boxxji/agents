@@ -22,6 +22,7 @@ from .sandbox import (
     SandboxInstance,
     SubprocessExecResult,
     VisorSandboxManager,
+    build_scrubbed_env,
 )
 from .schemas import (
     BenchmarkReport,
@@ -74,6 +75,7 @@ __all__ = [
     "WorkflowAgent",
     "WorkflowStep",
     "build_osworld_subset",
+    "build_scrubbed_env",
     "collect_hardware_info",
     "compute_manifest_digest",
     "evaluate_task",

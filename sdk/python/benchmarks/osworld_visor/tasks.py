@@ -35,6 +35,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .sandbox import build_scrubbed_env
 from .schemas import (
     DesktopToolingReport,
     ExternalOSWorldTask,
@@ -606,7 +607,7 @@ try:
         t0 = time.perf_counter_ns()
         with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=5) as resp:
             body = resp.read()
-            dt_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
+            dt_ms = max(0.0001, (time.perf_counter_ns() - t0) / 1_000_000.0)
             results[route] = {
                 "status": resp.status,
                 "content_length": len(body),
@@ -772,6 +773,21 @@ summary = {
 # Task 10: CI pipeline & environment JSON migration + validator verification
 # ---------------------------------------------------------------------------
 
+_TASK_10_VALIDATOR_CODE = (
+    "import json, pathlib, sys\n"
+    "wf = json.loads(pathlib.Path('ci/workflow.json').read_text())\n"
+    "for name, job in wf['jobs'].items():\n"
+    "    assert 'v1-legacy' not in job['image'], f'legacy tag in {name}'\n"
+    "    assert 'timeout_minutes' in job and job['timeout_minutes'] > 0, f'missing timeout in {name}'\n"
+    "for env_name in ('dev', 'staging', 'prod'):\n"
+    "    cfg = json.loads(pathlib.Path(f'ci/environments/{env_name}.json').read_text())\n"
+    "    assert 'v1-legacy' not in cfg['image'], f'legacy tag in {env_name}'\n"
+    "    if env_name == 'prod':\n"
+    "        assert cfg.get('read_only_root') is True, 'prod must enforce read_only_root'\n"
+    "print('validator-ok')\n"
+)
+
+
 def _task_10_json_yaml_pipeline_patch() -> OSWorldTaskSpec:
     workflow = json.dumps(
         {
@@ -791,19 +807,7 @@ def _task_10_json_yaml_pipeline_patch() -> OSWorldTaskSpec:
     dev_env = json.dumps({"env": "dev", "image": "hanzo/app:v1-legacy", "replicas": 1}, indent=2) + "\n"
     staging_env = json.dumps({"env": "staging", "image": "hanzo/app:v1-legacy", "replicas": 2}, indent=2) + "\n"
     prod_env = json.dumps({"env": "prod", "image": "hanzo/app:v1-legacy", "replicas": 4, "read_only_root": False}, indent=2) + "\n"
-    validator_py = (
-        "import json, pathlib, sys\n"
-        "wf = json.loads(pathlib.Path('ci/workflow.json').read_text())\n"
-        "for name, job in wf['jobs'].items():\n"
-        "    assert 'v1-legacy' not in job['image'], f'legacy tag in {name}'\n"
-        "    assert 'timeout_minutes' in job and job['timeout_minutes'] > 0, f'missing timeout in {name}'\n"
-        "for env_name in ('dev', 'staging', 'prod'):\n"
-        "    cfg = json.loads(pathlib.Path(f'ci/environments/{env_name}.json').read_text())\n"
-        "    assert 'v1-legacy' not in cfg['image'], f'legacy tag in {env_name}'\n"
-        "    if env_name == 'prod':\n"
-        "        assert cfg.get('read_only_root') is True, 'prod must enforce read_only_root'\n"
-        "print('validator-ok')\n"
-    )
+    validator_py = _TASK_10_VALIDATOR_CODE
     step1 = """
 import json, pathlib
 changes = {}
@@ -887,20 +891,24 @@ def build_osworld_subset() -> List[OSWorldTaskSpec]:
 # ---------------------------------------------------------------------------
 
 def evaluate_task(
-    task: OSWorldTaskSpec, workspace: Path
+    task: OSWorldTaskSpec,
+    workspace: Path,
+    *,
+    env: Optional[Dict[str, str]] = None,
 ) -> Tuple[bool, float, Dict[str, bool], str]:
     """Independently verify real workspace state for a completed task."""
+    eval_env = dict(env) if env is not None else build_scrubbed_env(workspace)
     evaluators = {
-        "filesystem_batch_ops": _eval_01_filesystem_batch_ops,
-        "spreadsheet_csv_transform": _eval_02_spreadsheet_csv_transform,
-        "sqlite_data_pipeline": _eval_03_sqlite_data_pipeline,
-        "cli_git_automation": _eval_04_cli_git_automation,
-        "config_and_archive_ops": _eval_05_config_and_archive_ops,
-        "document_markdown_report": _eval_06_document_markdown_report,
-        "local_http_service_check": _eval_07_local_http_service_check,
-        "permissions_and_cleanup_audit": _eval_08_permissions_and_cleanup_audit,
-        "log_triage_incident_report": _eval_09_log_triage_incident_report,
-        "json_yaml_pipeline_patch": _eval_10_json_yaml_pipeline_patch,
+        "filesystem_batch_ops": lambda ws: _eval_01_filesystem_batch_ops(ws),
+        "spreadsheet_csv_transform": lambda ws: _eval_02_spreadsheet_csv_transform(ws),
+        "sqlite_data_pipeline": lambda ws: _eval_03_sqlite_data_pipeline(ws),
+        "cli_git_automation": lambda ws: _eval_04_cli_git_automation(ws, eval_env),
+        "config_and_archive_ops": lambda ws: _eval_05_config_and_archive_ops(ws),
+        "document_markdown_report": lambda ws: _eval_06_document_markdown_report(ws),
+        "local_http_service_check": lambda ws: _eval_07_local_http_service_check(ws),
+        "permissions_and_cleanup_audit": lambda ws: _eval_08_permissions_and_cleanup_audit(ws),
+        "log_triage_incident_report": lambda ws: _eval_09_log_triage_incident_report(ws),
+        "json_yaml_pipeline_patch": lambda ws: _eval_10_json_yaml_pipeline_patch(ws, eval_env),
     }
     fn = evaluators.get(task.evaluator_kind)
     if fn is None:
@@ -926,25 +934,28 @@ def _eval_01_filesystem_batch_ops(ws: Path) -> Dict[str, bool]:
     checks["docs_trimmed"] = (
         readme_p.is_file()
         and notes_p.is_file()
-        and readme_p.read_text(encoding="utf-8") == "Project Handbook\nLine two\nLine three\n"
-        and notes_p.read_text(encoding="utf-8") == "Meeting notes\nFollow up\n"
+        and readme_p.read_text(encoding="utf-8", errors="replace") == "Project Handbook\nLine two\nLine three\n"
+        and notes_p.read_text(encoding="utf-8", errors="replace") == "Meeting notes\nFollow up\n"
     )
     checks["tmp_bak_deleted"] = not (inbox / "scratch.tmp").exists() and not (inbox / "old.bak").exists()
-    checks["dotfile_preserved"] = (inbox / ".env.sample").is_file() and "APP_ENV=staging" in (inbox / ".env.sample").read_text(encoding="utf-8")
+    checks["dotfile_preserved"] = (inbox / ".env.sample").is_file() and "APP_ENV=staging" in (inbox / ".env.sample").read_text(encoding="utf-8", errors="replace")
     manifest_p = ws / "manifest.json"
     manifest_ok = False
     if manifest_p.is_file():
         try:
             data = json.loads(manifest_p.read_text(encoding="utf-8"))
-            files = data.get("files", {})
-            if data.get("count") == 6 and len(files) == 6:
-                manifest_ok = all(
-                    (org / rel).is_file()
-                    and info.get("sha256") == _sha256_file(org / rel)
-                    and info.get("size") == (org / rel).stat().st_size
-                    for rel, info in files.items()
-                )
-        except (OSError, ValueError, TypeError):
+            if isinstance(data, dict):
+                files = data.get("files", {})
+                if data.get("count") == 6 and isinstance(files, dict) and len(files) == 6:
+                    manifest_ok = all(
+                        isinstance(rel, str)
+                        and isinstance(info, dict)
+                        and (org / rel).is_file()
+                        and info.get("sha256") == _sha256_file(org / rel)
+                        and info.get("size") == (org / rel).stat().st_size
+                        for rel, info in files.items()
+                    )
+        except (OSError, ValueError, TypeError, AttributeError, KeyError):
             manifest_ok = False
     checks["manifest_verified"] = manifest_ok
     return checks
@@ -957,7 +968,8 @@ def _eval_02_spreadsheet_csv_transform(ws: Path) -> Dict[str, bool]:
     csv_ok = False
     if clean_p.is_file():
         try:
-            rows = list(csv.DictReader(clean_p.open(encoding="utf-8")))
+            with clean_p.open(encoding="utf-8") as fh:
+                rows = list(csv.DictReader(fh))
             ids = [r["txn_id"] for r in rows]
             by_id = {r["txn_id"]: float(r["amount"]) for r in rows}
             csv_ok = (
@@ -968,7 +980,7 @@ def _eval_02_spreadsheet_csv_transform(ws: Path) -> Dict[str, bool]:
                 and by_id["T104"] == 2500.25
                 and by_id["T105"] == 500.75
             )
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             csv_ok = False
     checks["clean_csv_exact"] = csv_ok
 
@@ -976,12 +988,13 @@ def _eval_02_spreadsheet_csv_transform(ws: Path) -> Dict[str, bool]:
     if summary_p.is_file():
         try:
             s = json.loads(summary_p.read_text(encoding="utf-8"))
-            summary_ok = (
-                s.get("Engineering") == {"net_spend": 1200.0, "tax_amount": 120.0, "gross_total": 1320.0}
-                and s.get("Marketing") == {"net_spend": 450.0, "tax_amount": 36.0, "gross_total": 486.0}
-                and s.get("Operations") == {"net_spend": 3001.0, "tax_amount": 150.05, "gross_total": 3151.05}
-            )
-        except (OSError, ValueError, TypeError):
+            if isinstance(s, dict):
+                summary_ok = (
+                    s.get("Engineering") == {"net_spend": 1200.0, "tax_amount": 120.0, "gross_total": 1320.0}
+                    and s.get("Marketing") == {"net_spend": 450.0, "tax_amount": 36.0, "gross_total": 486.0}
+                    and s.get("Operations") == {"net_spend": 3001.0, "tax_amount": 150.05, "gross_total": 3151.05}
+                )
+        except (OSError, ValueError, TypeError, AttributeError):
             summary_ok = False
     checks["summary_json_exact"] = summary_ok
     return checks
@@ -998,68 +1011,84 @@ def _eval_03_sqlite_data_pipeline(ws: Path) -> Dict[str, bool]:
     if db_p.is_file():
         try:
             conn = sqlite3.connect(str(db_p))
-            cnt = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-            db_ok = cnt == 12
-            idxs = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()]
-            idx_ok = "idx_events_service" in idxs
-            vrows = conn.execute("SELECT service, total_requests, error_count FROM service_sla ORDER BY service").fetchall()
-            view_ok = vrows == [("auth", 4, 1), ("billing", 4, 2), ("search", 4, 0)]
-            conn.close()
-        except sqlite3.Error:
+            try:
+                cnt = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                db_ok = cnt == 12
+                idxs = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()]
+                idx_ok = "idx_events_service" in idxs
+                vrows = conn.execute("SELECT service, total_requests, error_count FROM service_sla ORDER BY service").fetchall()
+                view_ok = vrows == [("auth", 4, 1), ("billing", 4, 2), ("search", 4, 0)]
+            finally:
+                conn.close()
+        except (sqlite3.Error, TypeError, IndexError):
             pass
     checks["sqlite_rows_12"] = db_ok
     checks["index_created"] = idx_ok
     checks["view_sla_exact"] = view_ok
-    checks["dead_letter_3"] = dl_p.is_file() and len([ln for ln in dl_p.read_text(encoding="utf-8").splitlines() if ln.strip()]) == 3
+    checks["dead_letter_3"] = dl_p.is_file() and len([ln for ln in dl_p.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]) == 3
     rep_ok = False
     if rep_p.is_file():
         try:
             rep = json.loads(rep_p.read_text(encoding="utf-8"))
-            rep_ok = (
-                rep["auth"]["error_rate"] == 0.25
-                and rep["billing"]["error_rate"] == 0.5
-                and rep["search"]["error_rate"] == 0.0
-                and rep["billing"]["max_latency_ms"] == 210.0
-            )
-        except (OSError, ValueError, KeyError, TypeError):
+            if isinstance(rep, dict):
+                rep_ok = (
+                    isinstance(rep.get("auth"), dict)
+                    and isinstance(rep.get("billing"), dict)
+                    and isinstance(rep.get("search"), dict)
+                    and rep["auth"].get("error_rate") == 0.25
+                    and rep["billing"].get("error_rate") == 0.5
+                    and rep["search"].get("error_rate") == 0.0
+                    and rep["billing"].get("max_latency_ms") == 210.0
+                )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             rep_ok = False
     checks["sla_report_exact"] = rep_ok
     return checks
 
 
-def _eval_04_cli_git_automation(ws: Path) -> Dict[str, bool]:
+def _eval_04_cli_git_automation(ws: Path, eval_env: Dict[str, str]) -> Dict[str, bool]:
     repo = ws / "repo"
     checks: Dict[str, bool] = {}
-    env = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "HOME": str(ws),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-    }
 
     def _git(*args: str) -> str:
-        res = subprocess.run(["git", *args], cwd=str(repo), env=env, capture_output=True, text=True)
-        return res.stdout.strip() if res.returncode == 0 else ""
+        try:
+            res = subprocess.run(
+                ["git", *args],
+                cwd=str(repo),
+                env=eval_env,
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+            )
+            return res.stdout.strip() if res.returncode == 0 else ""
+        except (OSError, subprocess.SubprocessError):
+            return ""
 
     checks["branch_release_v1_2"] = _git("rev-parse", "--abbrev-ref", "HEAD") == "release/v1.2"
     checks["tag_v1_2_0_exists"] = "v1.2.0" in _git("tag", "-l", "v1.2.0").splitlines()
     checks["working_tree_clean"] = _git("status", "--porcelain") == "" and not (repo / "scratch_debug.tmp").exists()
     ver_p = repo / "VERSION"
-    checks["version_1_2_0"] = ver_p.is_file() and ver_p.read_text(encoding="utf-8").strip() == "1.2.0"
+    checks["version_1_2_0"] = ver_p.is_file() and ver_p.read_text(encoding="utf-8", errors="replace").strip() == "1.2.0"
     feat_short = _git("rev-parse", "--short", "feature/safe-ratio")
     cl_p = repo / "CHANGELOG.md"
-    checks["changelog_updated"] = cl_p.is_file() and "## 1.2.0" in cl_p.read_text(encoding="utf-8") and bool(feat_short) and feat_short in cl_p.read_text(encoding="utf-8")
-    # Functional check of cherry-picked fix in calc.py
+    cl_text = cl_p.read_text(encoding="utf-8", errors="replace") if cl_p.is_file() else ""
+    checks["changelog_updated"] = cl_p.is_file() and "## 1.2.0" in cl_text and bool(feat_short) and feat_short in cl_text
+    # Functional check of cherry-picked fix in calc.py under scrubbed sandbox env
     calc_ok = False
     calc_p = repo / "calc.py"
     if calc_p.is_file():
-        res = subprocess.run(
-            [sys.executable, "-c", "import calc; assert calc.compute_ratio(10, 0) == 0.0; assert calc.compute_ratio(1, 3) == 0.3333"],
-            cwd=str(repo),
-            capture_output=True,
-            text=True,
-        )
-        calc_ok = res.returncode == 0
+        try:
+            res = subprocess.run(
+                [sys.executable, "-c", "import calc; assert calc.compute_ratio(10, 0) == 0.0; assert calc.compute_ratio(1, 3) == 0.3333"],
+                cwd=str(repo),
+                env=eval_env,
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+            )
+            calc_ok = res.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            calc_ok = False
     checks["cherry_pick_fix_verified"] = calc_ok
     return checks
 
@@ -1069,22 +1098,25 @@ def _eval_05_config_and_archive_ops(ws: Path) -> Dict[str, bool]:
     ini_p = ws / "deploy" / "app.prod.ini"
     ini_ok = False
     if ini_p.is_file():
-        cfg = configparser.ConfigParser()
-        cfg.read(ini_p, encoding="utf-8")
-        ini_ok = (
-            cfg.get("server", "host", fallback="") == "127.0.0.1"
-            and cfg.get("server", "port", fallback="") == "8443"
-            and cfg.get("server", "workers", fallback="") == "8"
-            and cfg.get("server", "tls", fallback="") == "true"
-            and cfg.get("logging", "level", fallback="") == "info"
-            and cfg.get("logging", "format", fallback="") == "text"
-        )
+        try:
+            cfg = configparser.ConfigParser()
+            cfg.read(ini_p, encoding="utf-8")
+            ini_ok = (
+                cfg.get("server", "host", fallback="") == "127.0.0.1"
+                and cfg.get("server", "port", fallback="") == "8443"
+                and cfg.get("server", "workers", fallback="") == "8"
+                and cfg.get("server", "tls", fallback="") == "true"
+                and cfg.get("logging", "level", fallback="") == "info"
+                and cfg.get("logging", "format", fallback="") == "text"
+            )
+        except (OSError, configparser.Error, UnicodeError):
+            ini_ok = False
     checks["prod_ini_merged"] = ini_ok
 
     red_p = ws / "deploy" / "redacted.env"
     red_ok = False
     if red_p.is_file():
-        txt = red_p.read_text(encoding="utf-8")
+        txt = red_p.read_text(encoding="utf-8", errors="replace")
         red_ok = (
             "DB_PASSWORD=placeholder" not in txt
             and "API_TOKEN=placeholder" not in txt
@@ -1102,13 +1134,13 @@ def _eval_05_config_and_archive_ops(ws: Path) -> Dict[str, bool]:
             with tarfile.open(bundle_p, "r:gz") as tf:
                 names = set(tf.getnames())
                 tar_ok = {"app.prod.ini", "redacted.env", "assets/banner.txt", "assets/routes.json"}.issubset(names)
-        except tarfile.TarError:
+        except (tarfile.TarError, OSError):
             tar_ok = False
     checks["tarball_valid"] = tar_ok
     checks["sha256_matches"] = (
         bundle_p.is_file()
         and sha_p.is_file()
-        and sha_p.read_text(encoding="utf-8").strip().startswith(_sha256_file(bundle_p))
+        and sha_p.read_text(encoding="utf-8", errors="replace").strip().startswith(_sha256_file(bundle_p))
     )
     return checks
 
@@ -1119,7 +1151,7 @@ def _eval_06_document_markdown_report(ws: Path) -> Dict[str, bool]:
     checks: Dict[str, bool] = {}
     md_ok = False
     if md_p.is_file():
-        txt = md_p.read_text(encoding="utf-8")
+        txt = md_p.read_text(encoding="utf-8", errors="replace")
         md_ok = (
             "## Executive Summary" in txt
             and "## Open Action Items" in txt
@@ -1135,15 +1167,19 @@ def _eval_06_document_markdown_report(ws: Path) -> Dict[str, bool]:
     if json_p.is_file():
         try:
             data = json.loads(json_p.read_text(encoding="utf-8"))
-            open_items = data.get("open", [])
-            done_items = data.get("completed", [])
-            json_ok = (
-                len(open_items) == 3
-                and len(done_items) == 2
-                and [x["owner"] for x in open_items] == ["@alice", "@alice", "@carol"]
-                and open_items[0]["due"] == "2026-11-27"
-            )
-        except (OSError, ValueError, KeyError, TypeError):
+            if isinstance(data, dict):
+                open_items = data.get("open", [])
+                done_items = data.get("completed", [])
+                json_ok = (
+                    isinstance(open_items, list)
+                    and isinstance(done_items, list)
+                    and len(open_items) == 3
+                    and len(done_items) == 2
+                    and all(isinstance(x, dict) for x in open_items)
+                    and [x.get("owner") for x in open_items] == ["@alice", "@alice", "@carol"]
+                    and open_items[0].get("due") == "2026-11-27"
+                )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             json_ok = False
     checks["action_items_json_exact"] = json_ok
     return checks
@@ -1159,24 +1195,35 @@ def _eval_07_local_http_service_check(ws: Path) -> Dict[str, bool]:
     if rep_p.is_file():
         try:
             rep = json.loads(rep_p.read_text(encoding="utf-8"))
-            routes = rep.get("routes", {})
-            rep_ok = (
-                isinstance(rep.get("port"), int)
-                and rep["port"] > 0
-                and rep.get("server_stopped") is True
-                and routes.get("/index.html", {}).get("status") == 200
-                and routes.get("/index.html", {}).get("sha256") == idx_sha
-                and routes.get("/api_data.json", {}).get("status") == 200
-                and routes.get("/api_data.json", {}).get("sha256") == api_sha
-                and routes.get("/health", {}).get("status") == 200
-            )
-            lat_ok = all(
-                isinstance(routes.get(r, {}).get("latency_ms"), (int, float))
-                and routes[r]["latency_ms"] > 0.0
-                for r in ("/index.html", "/api_data.json", "/health")
-            )
-        except (OSError, ValueError, KeyError, TypeError):
+            if isinstance(rep, dict):
+                routes = rep.get("routes", {})
+                if isinstance(routes, dict):
+                    r_idx = routes.get("/index.html", {})
+                    r_api = routes.get("/api_data.json", {})
+                    r_hlt = routes.get("/health", {})
+                    if (
+                        isinstance(r_idx, dict)
+                        and isinstance(r_api, dict)
+                        and isinstance(r_hlt, dict)
+                    ):
+                        rep_ok = (
+                            isinstance(rep.get("port"), int)
+                            and rep["port"] > 0
+                            and rep.get("server_stopped") is True
+                            and r_idx.get("status") == 200
+                            and r_idx.get("sha256") == idx_sha
+                            and r_api.get("status") == 200
+                            and r_api.get("sha256") == api_sha
+                            and r_hlt.get("status") == 200
+                        )
+                        lat_ok = all(
+                            isinstance(routes.get(r, {}).get("latency_ms"), (int, float))
+                            and routes[r]["latency_ms"] > 0.0
+                            for r in ("/index.html", "/api_data.json", "/health")
+                        )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             rep_ok = False
+            lat_ok = False
     checks["http_probes_verified"] = rep_ok
     checks["http_latency_positive"] = lat_ok
     return checks
@@ -1190,7 +1237,7 @@ def _eval_08_permissions_and_cleanup_audit(ws: Path) -> Dict[str, bool]:
     checks: Dict[str, bool] = {}
     checks["key_mode_0600"] = key_p.is_file() and stat.S_IMODE(key_p.stat().st_mode) == 0o600
     checks["script_mode_0755"] = script_p.is_file() and stat.S_IMODE(script_p.stat().st_mode) == 0o755
-    checks["script_executed"] = out_p.is_file() and out_p.read_text(encoding="utf-8").strip() == "hardened-run-ok"
+    checks["script_executed"] = out_p.is_file() and out_p.read_text(encoding="utf-8", errors="replace").strip() == "hardened-run-ok"
     cache_dir = ws / "sec" / "cache"
     checks["cache_tmp_purged"] = (
         not list(cache_dir.glob("*.tmp")) and (cache_dir / "keep.dat").is_file()
@@ -1199,13 +1246,14 @@ def _eval_08_permissions_and_cleanup_audit(ws: Path) -> Dict[str, bool]:
     if sum_p.is_file():
         try:
             s = json.loads(sum_p.read_text(encoding="utf-8"))
-            sum_ok = (
-                s.get("key_mode") == "0o600"
-                and s.get("script_mode") == "0o755"
-                and s.get("removed_tmp_files") == ["stale_1.tmp", "stale_2.tmp"]
-                and s.get("output_present") is True
-            )
-        except (OSError, ValueError, TypeError):
+            if isinstance(s, dict):
+                sum_ok = (
+                    s.get("key_mode") == "0o600"
+                    and s.get("script_mode") == "0o755"
+                    and s.get("removed_tmp_files") == ["stale_1.tmp", "stale_2.tmp"]
+                    and s.get("output_present") is True
+                )
+        except (OSError, ValueError, TypeError, AttributeError):
             sum_ok = False
     checks["audit_summary_exact"] = sum_ok
     return checks
@@ -1217,7 +1265,7 @@ def _eval_09_log_triage_incident_report(ws: Path) -> Dict[str, bool]:
     checks: Dict[str, bool] = {}
     err_ok = False
     if err_p.is_file():
-        lines = [ln for ln in err_p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        lines = [ln for ln in err_p.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
         err_ok = (
             len(lines) == 5
             and lines[0].startswith("ts=2026-11-01T10:00:05Z")
@@ -1229,59 +1277,128 @@ def _eval_09_log_triage_incident_report(ws: Path) -> Dict[str, bool]:
     if sum_p.is_file():
         try:
             s = json.loads(sum_p.read_text(encoding="utf-8"))
-            sum_ok = (
-                s.get("total_error_lines") == 5
-                and s.get("top_failing_service") == "payments"
-                and s.get("service_5xx_counts") == {"auth": 1, "payments": 4}
-                and s.get("code_5xx_counts") == {"500": 1, "502": 3, "503": 1}
-                and s.get("retried_error_req_ids") == ["r2"]
-            )
-        except (OSError, ValueError, TypeError):
+            if isinstance(s, dict):
+                sum_ok = (
+                    s.get("total_error_lines") == 5
+                    and s.get("top_failing_service") == "payments"
+                    and s.get("service_5xx_counts") == {"auth": 1, "payments": 4}
+                    and s.get("code_5xx_counts") == {"500": 1, "502": 3, "503": 1}
+                    and s.get("retried_error_req_ids") == ["r2"]
+                )
+        except (OSError, ValueError, TypeError, AttributeError):
             sum_ok = False
     checks["incident_summary_exact"] = sum_ok
     return checks
 
 
-def _eval_10_json_yaml_pipeline_patch(ws: Path) -> Dict[str, bool]:
+def _eval_10_json_yaml_pipeline_patch(ws: Path, eval_env: Dict[str, str]) -> Dict[str, bool]:
     checks: Dict[str, bool] = {}
-    val_p = ws / "ci" / "validator.py"
+
+    # Run the trusted canonical validator from outside the mutable workspace under
+    # the scrubbed sandbox environment (never executing agent-modified validator.py).
     val_ok = False
-    if val_p.is_file():
+    try:
         res = subprocess.run(
-            [sys.executable, str(val_p)],
+            [sys.executable, "-c", _TASK_10_VALIDATOR_CODE],
             cwd=str(ws),
+            env=eval_env,
             capture_output=True,
             text=True,
+            timeout=10.0,
         )
         val_ok = res.returncode == 0 and "validator-ok" in res.stdout
+    except (OSError, subprocess.SubprocessError):
+        val_ok = False
     checks["validator_passes"] = val_ok
 
+    # Independently validate EVERY workflow job image and timeout.
     wf_p = ws / "ci" / "workflow.json"
     wf_ok = False
     if wf_p.is_file():
         try:
             wf = json.loads(wf_p.read_text(encoding="utf-8"))
-            wf_ok = (
-                wf["jobs"]["lint"]["timeout_minutes"] == 15
-                and wf["jobs"]["test"]["timeout_minutes"] == 30
-                and wf["jobs"]["package"]["timeout_minutes"] == 15
-                and wf["jobs"]["lint"]["image"] == "hanzo/runner:v2-hardened"
-            )
-        except (OSError, ValueError, KeyError, TypeError):
+            jobs = wf.get("jobs") if isinstance(wf, dict) else None
+            if isinstance(jobs, dict):
+                lint = jobs.get("lint")
+                test = jobs.get("test")
+                package = jobs.get("package")
+                all_jobs_hardened = all(
+                    isinstance(job, dict)
+                    and isinstance(job.get("image"), str)
+                    and "v1-legacy" not in job["image"]
+                    and isinstance(job.get("timeout_minutes"), int)
+                    and job["timeout_minutes"] > 0
+                    for job in jobs.values()
+                )
+                wf_ok = (
+                    all_jobs_hardened
+                    and isinstance(lint, dict)
+                    and isinstance(test, dict)
+                    and isinstance(package, dict)
+                    and lint.get("timeout_minutes") == 15
+                    and test.get("timeout_minutes") == 30
+                    and package.get("timeout_minutes") == 15
+                    and lint.get("image") == "hanzo/runner:v2-hardened"
+                    and test.get("image") == "hanzo/runner:v2-hardened"
+                    and package.get("image") == "hanzo/builder:v2-hardened"
+                )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             wf_ok = False
     checks["workflow_timeouts_and_tags"] = wf_ok
+
+    # Independently validate EVERY environment manifest (dev, staging, prod).
+    expected_envs = {
+        "dev": {"env": "dev", "image": "hanzo/app:v2-hardened", "replicas": 1},
+        "staging": {"env": "staging", "image": "hanzo/app:v2-hardened", "replicas": 2},
+        "prod": {
+            "env": "prod",
+            "image": "hanzo/app:v2-hardened",
+            "replicas": 4,
+            "read_only_root": True,
+        },
+    }
+    envs_ok = True
+    for env_name, expected in expected_envs.items():
+        ep = ws / "ci" / "environments" / f"{env_name}.json"
+        if not ep.is_file():
+            envs_ok = False
+            break
+        try:
+            cfg = json.loads(ep.read_text(encoding="utf-8"))
+            if not isinstance(cfg, dict):
+                envs_ok = False
+                break
+            image = cfg.get("image")
+            if not isinstance(image, str) or "v1-legacy" in image or image != expected["image"]:
+                envs_ok = False
+                break
+            if cfg.get("env") != expected["env"] or cfg.get("replicas") != expected["replicas"]:
+                envs_ok = False
+                break
+            if env_name == "prod" and cfg.get("read_only_root") is not True:
+                envs_ok = False
+                break
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            envs_ok = False
+            break
+    checks["environments_migrated"] = envs_ok
 
     diff_p = ws / "ci" / "migration_diff.json"
     diff_ok = False
     if diff_p.is_file():
         try:
             d = json.loads(diff_p.read_text(encoding="utf-8"))
-            diff_ok = (
-                "ci/workflow.json" in d
-                and "ci/environments/prod.json" in d
-                and "read_only_root" in d["ci/environments/prod.json"]
-            )
-        except (OSError, ValueError, TypeError):
+            if isinstance(d, dict):
+                prod_diff = d.get("ci/environments/prod.json")
+                diff_ok = (
+                    "ci/workflow.json" in d
+                    and "ci/environments/dev.json" in d
+                    and "ci/environments/staging.json" in d
+                    and "ci/environments/prod.json" in d
+                    and isinstance(prod_diff, list)
+                    and "read_only_root" in prod_diff
+                )
+        except (OSError, ValueError, TypeError, AttributeError):
             diff_ok = False
     checks["migration_diff_recorded"] = diff_ok
     return checks

@@ -15,10 +15,12 @@ Models two real local sandbox execution profiles aligned with Hanzo's canonical
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import hashlib
 import json
 import os
+import platform
 import resource
 import shutil
 import signal
@@ -32,7 +34,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from .profiler import (
     read_proc_pid_vmhwm_kib,
@@ -73,6 +75,227 @@ FORBIDDEN_ENV_PREFIXES: Tuple[str, ...] = (
     "PYTHONSTARTUP",
     "PYTEST_",
 )
+
+# Linux kernel constants for unprivileged user+mount namespace confinement.
+_CLONE_NEWNS = 0x00020000
+_CLONE_NEWUSER = 0x10000000
+_MS_RDONLY = 1
+_MS_REMOUNT = 32
+_MS_BIND = 4096
+_MS_REC = 16384
+_MS_PRIVATE = 1 << 18
+_MNT_DETACH = 2
+_PR_CAPBSET_DROP = 24
+_PR_SET_NO_NEW_PRIVS = 38
+_SYS_PIVOT_ROOT_BY_ARCH: Dict[str, int] = {
+    "x86_64": 155,
+    "amd64": 155,
+    "aarch64": 41,
+    "arm64": 41,
+}
+_RO_SYSTEM_DIRS: Tuple[bytes, ...] = (
+    b"bin",
+    b"etc",
+    b"lib",
+    b"lib64",
+    b"nix",
+    b"opt",
+    b"proc",
+    b"sbin",
+    b"usr",
+)
+_DEV_NODES: Tuple[bytes, ...] = (
+    b"null",
+    b"zero",
+    b"full",
+    b"random",
+    b"urandom",
+    b"tty",
+)
+
+
+def _load_linux_libc() -> Optional[Tuple[Any, int]]:
+    """Return ``(libc, sys_pivot_root)`` on supported Linux hosts, else None."""
+    if sys.platform != "linux":
+        return None
+    sys_pivot_root = _SYS_PIVOT_ROOT_BY_ARCH.get(platform.machine().lower())
+    if sys_pivot_root is None:
+        return None
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc.unshare.argtypes = [ctypes.c_int]
+        libc.unshare.restype = ctypes.c_int
+        libc.mount.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_ulong,
+            ctypes.c_char_p,
+        ]
+        libc.mount.restype = ctypes.c_int
+        libc.umount2.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        libc.umount2.restype = ctypes.c_int
+        libc.prctl.argtypes = [
+            ctypes.c_int,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        ]
+        libc.prctl.restype = ctypes.c_int
+        libc.syscall.restype = ctypes.c_long
+        return libc, sys_pivot_root
+    except OSError:
+        return None
+
+
+def _build_linux_mount_ns_preexec(
+    libc: Any,
+    sys_pivot_root: int,
+    *,
+    nsroot_b: bytes,
+    workdir_b: bytes,
+    rw_dirs_b: Tuple[bytes, ...],
+    uid: int,
+    gid: int,
+    enable_rlimits: bool,
+) -> Callable[[], None]:
+    """Build a post-fork preexec_fn enforcing a read-only pivot_root mount namespace."""
+    uid_map = f"0 {uid} 1\n".encode("ascii")
+    gid_map = f"0 {gid} 1\n".encode("ascii")
+
+    def _confine() -> None:
+        if libc.unshare(_CLONE_NEWUSER | _CLONE_NEWNS) != 0:
+            raise OSError(ctypes.get_errno(), "unshare(CLONE_NEWUSER|CLONE_NEWNS) failed")
+        with open("/proc/self/setgroups", "wb") as fh:
+            fh.write(b"deny\n")
+        with open("/proc/self/uid_map", "wb") as fh:
+            fh.write(uid_map)
+        with open("/proc/self/gid_map", "wb") as fh:
+            fh.write(gid_map)
+        if libc.mount(None, b"/", None, _MS_REC | _MS_PRIVATE, None) != 0:
+            raise OSError(ctypes.get_errno(), "mount(MS_PRIVATE) failed")
+        os.makedirs(nsroot_b, exist_ok=True)
+        if libc.mount(b"tmpfs", nsroot_b, b"tmpfs", 0, b"size=16m") != 0:
+            raise OSError(ctypes.get_errno(), "mount(tmpfs) failed")
+        for d in _RO_SYSTEM_DIRS:
+            src = b"/" + d
+            dst = nsroot_b + b"/" + d
+            if os.path.islink(src):
+                os.symlink(os.readlink(src), dst)
+            elif os.path.isdir(src):
+                os.mkdir(dst)
+                if libc.mount(src, dst, None, _MS_BIND | _MS_REC, None) == 0:
+                    libc.mount(None, dst, None, _MS_REMOUNT | _MS_BIND | _MS_RDONLY, None)
+        dev_dst = nsroot_b + b"/dev"
+        os.mkdir(dev_dst)
+        for df in _DEV_NODES:
+            src = b"/dev/" + df
+            dst = dev_dst + b"/" + df
+            if os.path.exists(src):
+                open(dst, "wb").close()
+                libc.mount(src, dst, None, _MS_BIND, None)
+        os.symlink(b"/proc/self/fd", dev_dst + b"/fd")
+        os.symlink(b"/proc/self/fd/0", dev_dst + b"/stdin")
+        os.symlink(b"/proc/self/fd/1", dev_dst + b"/stdout")
+        os.symlink(b"/proc/self/fd/2", dev_dst + b"/stderr")
+        for rw in rw_dirs_b:
+            dst = nsroot_b + rw
+            os.makedirs(dst, exist_ok=True)
+            if libc.mount(rw, dst, None, _MS_BIND, None) != 0:
+                raise OSError(ctypes.get_errno(), f"bind mount failed for {rw!r}")
+        oldroot = nsroot_b + b"/.oldroot"
+        os.mkdir(oldroot)
+        os.chdir(nsroot_b)
+        if (
+            libc.syscall(
+                ctypes.c_long(sys_pivot_root),
+                ctypes.c_char_p(b"."),
+                ctypes.c_char_p(b".oldroot"),
+            )
+            != 0
+        ):
+            raise OSError(ctypes.get_errno(), "pivot_root failed")
+        os.chdir(b"/")
+        if libc.umount2(b"/.oldroot", _MNT_DETACH) != 0:
+            raise OSError(ctypes.get_errno(), "umount2(/.oldroot) failed")
+        os.rmdir(b"/.oldroot")
+        if libc.mount(b"tmpfs", b"/", b"tmpfs", _MS_REMOUNT | _MS_RDONLY, None) != 0:
+            raise OSError(ctypes.get_errno(), "remount ro / failed")
+        os.chdir(workdir_b)
+        # Drop all bounding capabilities and forbid privilege escalation so
+        # execve() starts with zero capabilities (enforcing 0o444 CAS immutability).
+        for cap in range(64):
+            libc.prctl(_PR_CAPBSET_DROP, cap, 0, 0, 0)
+        libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        if enable_rlimits:
+            try:
+                soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+                limit = 64 * 1024 * 1024
+                if hard == resource.RLIM_INFINITY or hard >= limit:
+                    new_soft = limit if soft == resource.RLIM_INFINITY else min(soft, limit)
+                    resource.setrlimit(resource.RLIMIT_FSIZE, (new_soft, hard))
+            except (ValueError, OSError):
+                pass
+
+    return _confine
+
+
+def build_scrubbed_env(
+    workspace: Path,
+    *,
+    home_dir: Optional[Path] = None,
+    tmp_dir: Optional[Path] = None,
+    xdg_config_dir: Optional[Path] = None,
+    xdg_cache_dir: Optional[Path] = None,
+    sandbox_id: str = "eval",
+) -> Dict[str, str]:
+    """Construct an environment-scrubbed POSIX env allowlist with zero host secrets."""
+    ws = Path(os.path.realpath(str(workspace)))
+    resolved_home = Path(os.path.realpath(str(home_dir))) if home_dir is not None else ws
+    resolved_tmp = Path(os.path.realpath(str(tmp_dir))) if tmp_dir is not None else ws
+    resolved_xdg_cfg = (
+        Path(os.path.realpath(str(xdg_config_dir)))
+        if xdg_config_dir is not None
+        else resolved_home / ".config"
+    )
+    resolved_xdg_cache = (
+        Path(os.path.realpath(str(xdg_cache_dir)))
+        if xdg_cache_dir is not None
+        else resolved_home / ".cache"
+    )
+
+    py_bin_dir = str(Path(sys.executable).resolve().parent)
+    safe_path_parts = [py_bin_dir, "/usr/local/bin", "/usr/bin", "/bin"]
+    seen: Set[str] = set()
+    clean_path: List[str] = []
+    for part in safe_path_parts:
+        if part and part not in seen:
+            seen.add(part)
+            clean_path.append(part)
+
+    return {
+        "PATH": os.pathsep.join(clean_path),
+        "HOME": str(resolved_home),
+        "TMPDIR": str(resolved_tmp),
+        "TEMP": str(resolved_tmp),
+        "TMP": str(resolved_tmp),
+        "XDG_CONFIG_HOME": str(resolved_xdg_cfg),
+        "XDG_CACHE_HOME": str(resolved_xdg_cache),
+        "XDG_DATA_HOME": str(resolved_home / ".local" / "share"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Sandbox Agent",
+        "GIT_AUTHOR_EMAIL": "agent@hanzo.local",
+        "GIT_COMMITTER_NAME": "Sandbox Agent",
+        "GIT_COMMITTER_EMAIL": "agent@hanzo.local",
+        "HANZO_SANDBOX_ID": sandbox_id,
+        "HANZO_WORKSPACE": str(ws),
+    }
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -164,9 +387,11 @@ class SandboxInstance:
     cas_template_dir: Optional[Path] = None
     cas_ro_manifest: Dict[str, str] = field(default_factory=dict)
     spawned_pgids: Set[int] = field(default_factory=set)
+    spawned_pids: Set[int] = field(default_factory=set)
     escape_events: List[str] = field(default_factory=list)
     monitored_ports: Set[int] = field(default_factory=set)
     initial_root_entries: Set[str] = field(default_factory=set)
+    nsroot_dir: Optional[Path] = None
 
 
 @dataclass
@@ -187,6 +412,7 @@ class VisorSandboxManager:
         base_dir: Optional[Path] = None,
         workspace_scale: str = "medium",
         enable_rlimits: bool = True,
+        enable_fs_confinement: bool = True,
     ) -> None:
         if workspace_scale not in WORKSPACE_SCALES:
             raise ValueError(
@@ -194,6 +420,7 @@ class VisorSandboxManager:
             )
         self.workspace_scale = workspace_scale
         self.enable_rlimits = enable_rlimits
+        self.enable_fs_confinement = enable_fs_confinement
         self._owns_base_dir = base_dir is None
         if base_dir is None:
             raw_base = Path(tempfile.mkdtemp(prefix="osworld_visor_"))
@@ -208,6 +435,94 @@ class VisorSandboxManager:
         self.runs_root.mkdir(parents=True, exist_ok=True)
         self._cas_lock = threading.Lock()
         self._cas_entries: Dict[str, _CASTemplateEntry] = {}
+        self._proc_dir = Path("/proc")
+        self._state_lock = threading.Lock()
+        self._active_pids: Dict[int, str] = {}
+        self._known_run_dirs: Set[str] = set()
+        self._linux_libc: Optional[Any] = None
+        self._sys_pivot_root: int = 0
+        self.fs_confinement: str = "unenforced_posix_audit_only"
+        self.fs_confinement_enforced: bool = False
+        if self.enable_fs_confinement:
+            self._probe_linux_mount_ns_confinement()
+
+    def _probe_linux_mount_ns_confinement(self) -> None:
+        """Probe unprivileged Linux user+mount namespace confinement once at startup."""
+        loaded = _load_linux_libc()
+        if loaded is None:
+            return
+        libc, sys_pivot_root = loaded
+        probe_root = Path(tempfile.mkdtemp(prefix=".ns_probe_", dir=str(self.runs_root)))
+        try:
+            p_ws = probe_root / "workspace"
+            p_home = probe_root / "home"
+            p_tmp = probe_root / "tmp"
+            p_xcfg = probe_root / "xdg_config"
+            p_xcache = probe_root / "xdg_cache"
+            p_nsroot = probe_root / ".nsroot"
+            for d in (p_ws, p_home, p_tmp, p_xcfg, p_xcache, p_nsroot):
+                d.mkdir(parents=True, exist_ok=True)
+            preexec = _build_linux_mount_ns_preexec(
+                libc,
+                sys_pivot_root,
+                nsroot_b=os.fsencode(str(p_nsroot)),
+                workdir_b=os.fsencode(str(p_ws)),
+                rw_dirs_b=(
+                    os.fsencode(str(p_ws)),
+                    os.fsencode(str(p_home)),
+                    os.fsencode(str(p_tmp)),
+                    os.fsencode(str(p_xcfg)),
+                    os.fsencode(str(p_xcache)),
+                ),
+                uid=os.getuid(),
+                gid=os.getgid(),
+                enable_rlimits=False,
+            )
+            probe_py = (
+                "import pathlib, sys\n"
+                "pathlib.Path('inside.txt').write_text('ok', encoding='utf-8')\n"
+                "try:\n"
+                "    pathlib.Path('../../probe_escape.txt').write_text('bad', encoding='utf-8')\n"
+                "    sys.exit(2)\n"
+                "except OSError:\n"
+                "    sys.exit(0)\n"
+            )
+            res = subprocess.run(
+                [sys.executable, "-c", probe_py],
+                cwd=str(p_ws),
+                env=build_scrubbed_env(
+                    p_ws,
+                    home_dir=p_home,
+                    tmp_dir=p_tmp,
+                    xdg_config_dir=p_xcfg,
+                    xdg_cache_dir=p_xcache,
+                    sandbox_id="confinement_probe",
+                ),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=preexec,
+                timeout=10.0,
+            )
+            if (
+                res.returncode == 0
+                and (p_ws / "inside.txt").is_file()
+                and not (self.runs_root / "probe_escape.txt").exists()
+            ):
+                self._linux_libc = libc
+                self._sys_pivot_root = sys_pivot_root
+                self.fs_confinement = "linux_mount_namespace"
+                self.fs_confinement_enforced = True
+        except (OSError, subprocess.SubprocessError):
+            pass
+        finally:
+            self._force_rmtree(probe_root, allow_chmod_files=True)
+            escaped_probe = self.runs_root / "probe_escape.txt"
+            if escaped_probe.exists():
+                try:
+                    escaped_probe.unlink()
+                except OSError:
+                    pass
 
     def close(self) -> None:
         """Remove temporary manager storage when owned by this instance."""
@@ -376,12 +691,15 @@ class VisorSandboxManager:
         t0 = time.perf_counter_ns()
         sandbox_id = f"{task.task_id}_{profile.value}_{uuid.uuid4().hex[:10]}"
         sandbox_root = Path(os.path.realpath(str(self.runs_root / sandbox_id)))
+        with self._state_lock:
+            self._known_run_dirs.add(sandbox_root.name)
         workspace = sandbox_root / "workspace"
         home_dir = sandbox_root / "home"
         tmp_dir = sandbox_root / "tmp"
         xdg_config_dir = sandbox_root / "xdg_config"
         xdg_cache_dir = sandbox_root / "xdg_cache"
         external_canary_dir = sandbox_root / "host_guard"
+        nsroot_dir = sandbox_root / ".nsroot"
 
         for d in (
             workspace,
@@ -390,6 +708,7 @@ class VisorSandboxManager:
             xdg_config_dir,
             xdg_cache_dir,
             external_canary_dir,
+            nsroot_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 
@@ -492,42 +811,44 @@ class VisorSandboxManager:
             cas_template_dir=cas_template_dir,
             cas_ro_manifest=cas_ro_manifest,
             initial_root_entries=initial_root_entries,
+            nsroot_dir=nsroot_dir,
         )
 
     def build_sandbox_env(self, sandbox: SandboxInstance) -> Dict[str, str]:
         """Construct an environment-scrubbed POSIX env isolated to the sandbox."""
-        py_bin_dir = str(Path(sys.executable).resolve().parent)
-        safe_path_parts = [py_bin_dir, "/usr/local/bin", "/usr/bin", "/bin"]
-        # Preserve unique existing directories in order.
-        seen: Set[str] = set()
-        clean_path: List[str] = []
-        for part in safe_path_parts:
-            if part and part not in seen:
-                seen.add(part)
-                clean_path.append(part)
+        return build_scrubbed_env(
+            sandbox.workspace,
+            home_dir=sandbox.home_dir,
+            tmp_dir=sandbox.tmp_dir,
+            xdg_config_dir=sandbox.xdg_config_dir,
+            xdg_cache_dir=sandbox.xdg_cache_dir,
+            sandbox_id=sandbox.sandbox_id,
+        )
 
-        return {
-            "PATH": os.pathsep.join(clean_path),
-            "HOME": str(sandbox.home_dir),
-            "TMPDIR": str(sandbox.tmp_dir),
-            "TEMP": str(sandbox.tmp_dir),
-            "TMP": str(sandbox.tmp_dir),
-            "XDG_CONFIG_HOME": str(sandbox.xdg_config_dir),
-            "XDG_CACHE_HOME": str(sandbox.xdg_cache_dir),
-            "XDG_DATA_HOME": str(sandbox.home_dir / ".local" / "share"),
-            "LANG": "C.UTF-8",
-            "LC_ALL": "C.UTF-8",
-            "PYTHONNOUSERSITE": "1",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_AUTHOR_NAME": "Sandbox Agent",
-            "GIT_AUTHOR_EMAIL": "agent@hanzo.local",
-            "GIT_COMMITTER_NAME": "Sandbox Agent",
-            "GIT_COMMITTER_EMAIL": "agent@hanzo.local",
-            "HANZO_SANDBOX_ID": sandbox.sandbox_id,
-            "HANZO_WORKSPACE": str(sandbox.workspace),
-        }
+    def _make_preexec(
+        self, sandbox: SandboxInstance, cwd_path: Path
+    ) -> Optional[Callable[[], None]]:
+        """Build preexec_fn applying Linux mount-namespace confinement and/or rlimits."""
+        if self.fs_confinement_enforced and self._linux_libc is not None:
+            nsroot = sandbox.nsroot_dir or (sandbox.sandbox_root / ".nsroot")
+            nsroot.mkdir(parents=True, exist_ok=True)
+            return _build_linux_mount_ns_preexec(
+                self._linux_libc,
+                self._sys_pivot_root,
+                nsroot_b=os.fsencode(str(nsroot)),
+                workdir_b=os.fsencode(str(cwd_path)),
+                rw_dirs_b=(
+                    os.fsencode(str(sandbox.workspace)),
+                    os.fsencode(str(sandbox.home_dir)),
+                    os.fsencode(str(sandbox.tmp_dir)),
+                    os.fsencode(str(sandbox.xdg_config_dir)),
+                    os.fsencode(str(sandbox.xdg_cache_dir)),
+                ),
+                uid=os.getuid(),
+                gid=os.getgid(),
+                enable_rlimits=self.enable_rlimits,
+            )
+        return self._make_preexec_rlimits()
 
     def safe_resolve_workspace_path(
         self, sandbox: SandboxInstance, rel_path: str
@@ -597,10 +918,13 @@ class VisorSandboxManager:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
-            preexec_fn=self._make_preexec_rlimits(),
+            preexec_fn=self._make_preexec(sandbox, cwd_path),
         )
         pgid = proc.pid
         sandbox.spawned_pgids.add(pgid)
+        sandbox.spawned_pids.add(proc.pid)
+        with self._state_lock:
+            self._active_pids[proc.pid] = sandbox.sandbox_id
 
         stdout_chunks: List[bytes] = []
         stderr_chunks: List[bytes] = []
@@ -626,33 +950,37 @@ class VisorSandboxManager:
 
         parent_cmdline = read_proc_self_cmdline()
         deadline = time.monotonic() + max(0.1, timeout_s)
-        while True:
-            live_hwm = read_proc_pid_vmhwm_kib(
-                proc.pid, parent_cmdline=parent_cmdline
-            )
-            if live_hwm is not None and live_hwm > sampled_vmhwm_kib:
-                sampled_vmhwm_kib = live_hwm
+        try:
+            while True:
+                live_hwm = read_proc_pid_vmhwm_kib(
+                    proc.pid, parent_cmdline=parent_cmdline
+                )
+                if live_hwm is not None and live_hwm > sampled_vmhwm_kib:
+                    sampled_vmhwm_kib = live_hwm
 
-            try:
-                waited_pid, status, ru = os.wait4(proc.pid, os.WNOHANG)
-            except ChildProcessError:
-                break
-
-            if waited_pid == proc.pid:
-                exit_status = status
-                rusage = ru
-                break
-
-            if time.monotonic() >= deadline:
-                timed_out = True
-                self._terminate_pgid(pgid)
                 try:
-                    _, exit_status, rusage = os.wait4(proc.pid, 0)
+                    waited_pid, status, ru = os.wait4(proc.pid, os.WNOHANG)
                 except ChildProcessError:
-                    pass
-                break
+                    break
 
-            time.sleep(0.001)
+                if waited_pid == proc.pid:
+                    exit_status = status
+                    rusage = ru
+                    break
+
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    self._terminate_pgid(pgid)
+                    try:
+                        _, exit_status, rusage = os.wait4(proc.pid, 0)
+                    except ChildProcessError:
+                        pass
+                    break
+
+                time.sleep(0.001)
+        finally:
+            with self._state_lock:
+                self._active_pids.pop(proc.pid, None)
 
         wall_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
         t_out.join(timeout=2.0)
@@ -724,13 +1052,27 @@ class VisorSandboxManager:
             for name in extra_root:
                 violations.append(f"escape_write_in_sandbox_root:{name}")
 
-        # 3. Verify no unexpected files appeared in external_canary_dir.
+        # 3. Verify no unexpected files appeared in runs_root or base_dir
+        #    (catches deeper `../../` and `../../../` traversal writes on unenforced hosts).
+        if self.runs_root.exists():
+            with self._state_lock:
+                known_runs = set(self._known_run_dirs)
+            for child in sorted(self.runs_root.iterdir(), key=lambda p: p.name):
+                if child.name not in known_runs:
+                    violations.append(f"escape_write_in_runs_root:{child.name}")
+
+        if self.base_dir.exists():
+            for child in sorted(self.base_dir.iterdir(), key=lambda p: p.name):
+                if child.name not in {"cas_pool", "runs"}:
+                    violations.append(f"escape_write_in_base_dir:{child.name}")
+
+        # 4. Verify no unexpected files appeared in external_canary_dir.
         if sandbox.external_canary_dir.exists():
             for child in sorted(sandbox.external_canary_dir.iterdir()):
                 if child.name != sandbox.external_canary_path.name:
                     violations.append(f"escape_write_in_host_guard:{child.name}")
 
-        # 4. Walk workspace without following symlinks and reject any symlink whose
+        # 5. Walk workspace without following symlinks and reject any symlink whose
         #    resolved target escapes realpath(workspace).
         real_ws = os.path.realpath(str(sandbox.workspace))
         for dirpath, dirnames, filenames in os.walk(sandbox.workspace, followlinks=False):
@@ -755,16 +1097,78 @@ class VisorSandboxManager:
         return SecurityAuditResult(
             escaped=bool(violations),
             violations=violations,
+            fs_confinement=self.fs_confinement,
+            fs_confinement_enforced=self.fs_confinement_enforced,
         )
 
+    @staticmethod
+    def _pgid_alive(pgid: int) -> bool:
+        """Return True iff at least one process in process group ``pgid`` exists."""
+        if pgid <= 0:
+            return False
+        try:
+            os.killpg(pgid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    def _find_pids_via_ps(self, target_pgids: Set[int], my_pid: int) -> Set[int]:
+        """POSIX non-procfs fallback (e.g. macOS/BSD) discovering live PIDs in recorded PGIDs."""
+        if not target_pgids:
+            return set()
+        ps_bin = shutil.which("ps")
+        if not ps_bin:
+            return set()
+        found: Set[int] = set()
+        try:
+            res = subprocess.run(
+                [ps_bin, "-axo", "pid=,pgid=,stat="],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+            )
+            if res.returncode != 0:
+                res = subprocess.run(
+                    [ps_bin, "-eo", "pid=,pgid=,stat="],
+                    capture_output=True,
+                    text=True,
+                    timeout=3.0,
+                )
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    try:
+                        pid = int(parts[0])
+                        pgid = int(parts[1])
+                    except ValueError:
+                        continue
+                    state = parts[2] if len(parts) >= 3 else ""
+                    if pid != my_pid and pgid in target_pgids and not state.startswith("Z"):
+                        found.add(pid)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return found
+
+    def _find_live_pgids(self, sandbox: SandboxInstance) -> List[int]:
+        """Return recorded sandbox PGIDs that still have live processes."""
+        live: List[int] = []
+        for pgid in sorted(sandbox.spawned_pgids):
+            if self._pgid_alive(pgid):
+                live.append(pgid)
+        return live
+
     def _find_orphan_pids(self, sandbox: SandboxInstance) -> List[int]:
-        """Detect live orphan processes belonging to this sandbox via Linux /proc."""
+        """Detect live orphan processes belonging to this sandbox (procfs + POSIX fallback)."""
         orphans: Set[int] = set()
         my_pid = os.getpid()
         marker = f"HANZO_SANDBOX_ID={sandbox.sandbox_id}".encode("utf-8")
         real_root = os.path.realpath(str(sandbox.sandbox_root))
 
-        proc_dir = Path("/proc")
+        proc_dir = self._proc_dir
         if proc_dir.is_dir():
             for entry in proc_dir.iterdir():
                 if not entry.name.isdigit():
@@ -810,6 +1214,11 @@ class VisorSandboxManager:
 
                 if matched:
                     orphans.add(pid)
+        else:
+            # Non-procfs POSIX fallback (e.g. macOS/BSD): inspect recorded PGIDs via ps.
+            live_pgids = set(self._find_live_pgids(sandbox))
+            if live_pgids:
+                orphans.update(self._find_pids_via_ps(live_pgids, my_pid))
 
         return sorted(orphans)
 
@@ -824,78 +1233,129 @@ class VisorSandboxManager:
             if sig == signal.SIGTERM:
                 time.sleep(0.05)
 
-    def _reap_orphan_pids(
+    def _other_sandbox_active_pids(self, sandbox: SandboxInstance) -> Set[int]:
+        with self._state_lock:
+            return {
+                pid
+                for pid, owner in self._active_pids.items()
+                if owner != sandbox.sandbox_id
+            }
+
+    def _reap_sandbox_owned_children(
         self, sandbox: SandboxInstance, orphan_pids: List[int]
-    ) -> List[int]:
-        """Terminate and confirm death of all detected orphan PIDs."""
+    ) -> None:
+        """Reap ONLY direct child PIDs/PGIDs owned by this sandbox (never waitpid(-1))."""
+        other_active = self._other_sandbox_active_pids(sandbox)
+        candidate_pids = (set(orphan_pids) | set(sandbox.spawned_pids)) - other_active
+        for pid in sorted(candidate_pids):
+            if pid <= 0:
+                continue
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+
+        for pgid in sorted(sandbox.spawned_pgids):
+            if pgid <= 0 or pgid in other_active:
+                continue
+            while True:
+                try:
+                    done_pid, _ = os.waitpid(-pgid, os.WNOHANG)
+                    if done_pid == 0:
+                        break
+                except ChildProcessError:
+                    break
+
+    def _reap_orphan_pids(
+        self,
+        sandbox: SandboxInstance,
+        orphan_pids: List[int],
+        *,
+        live_pgids: Optional[List[int]] = None,
+    ) -> Tuple[List[int], List[int]]:
+        """Terminate and confirm death of all detected orphan PIDs and live sandbox PGIDs."""
         reaped: List[int] = []
-        # First signal all spawned process groups.
-        for pgid in sandbox.spawned_pgids:
+        other_active = self._other_sandbox_active_pids(sandbox)
+        target_pgids = sorted(
+            (set(sandbox.spawned_pgids) | set(live_pgids or ())) - other_active
+        )
+        safe_orphan_pids = [p for p in orphan_pids if p not in other_active]
+
+        # First signal all sandbox-owned process groups and discovered orphan PIDs.
+        for pgid in target_pgids:
             try:
                 os.killpg(pgid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
-        for pid in orphan_pids:
+        for pid in safe_orphan_pids:
             try:
                 os.kill(pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
 
         deadline = time.monotonic() + 0.3
-        remaining = set(orphan_pids)
-        while remaining and time.monotonic() < deadline:
-            for pid in list(remaining):
+        remaining_pids = set(safe_orphan_pids)
+        remaining_pgids = {pgid for pgid in target_pgids if self._pgid_alive(pgid)}
+        while (remaining_pids or remaining_pgids) and time.monotonic() < deadline:
+            self._reap_sandbox_owned_children(sandbox, list(remaining_pids))
+            for pid in list(remaining_pids):
                 if not self._pid_alive(pid):
-                    remaining.discard(pid)
+                    remaining_pids.discard(pid)
                     reaped.append(pid)
-            if remaining:
+            for pgid in list(remaining_pgids):
+                if not self._pgid_alive(pgid):
+                    remaining_pgids.discard(pgid)
+            if remaining_pids or remaining_pgids:
                 time.sleep(0.01)
 
-        # Escalate to SIGKILL for stubborn orphans.
-        if remaining:
-            for pgid in sandbox.spawned_pgids:
+        # Escalate to SIGKILL for stubborn orphans or surviving process groups.
+        if remaining_pids or remaining_pgids:
+            for pgid in sorted(remaining_pgids | set(target_pgids)):
                 try:
                     os.killpg(pgid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
-            for pid in list(remaining):
+            for pid in list(remaining_pids):
                 try:
                     os.kill(pid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
-            time.sleep(0.05)
-            for pid in list(remaining):
-                if not self._pid_alive(pid):
-                    remaining.discard(pid)
-                    reaped.append(pid)
+            kill_deadline = time.monotonic() + 0.2
+            while (remaining_pids or remaining_pgids) and time.monotonic() < kill_deadline:
+                self._reap_sandbox_owned_children(sandbox, list(remaining_pids))
+                for pid in list(remaining_pids):
+                    if not self._pid_alive(pid):
+                        remaining_pids.discard(pid)
+                        reaped.append(pid)
+                for pgid in list(remaining_pgids):
+                    if not self._pgid_alive(pgid):
+                        remaining_pgids.discard(pgid)
+                if remaining_pids or remaining_pgids:
+                    time.sleep(0.01)
 
-        # Drain any direct zombie children of this runner process.
-        while True:
-            try:
-                done_pid, _ = os.waitpid(-1, os.WNOHANG)
-                if done_pid == 0:
-                    break
-            except ChildProcessError:
-                break
+        # Final sandbox-scoped zombie drain (strictly scoped — never waitpid(-1)).
+        self._reap_sandbox_owned_children(sandbox, safe_orphan_pids)
+        still_alive_pgids = sorted(pgid for pgid in remaining_pgids if self._pgid_alive(pgid))
+        return sorted(set(reaped)), still_alive_pgids
 
-        return sorted(set(reaped))
-
-    @staticmethod
-    def _pid_alive(pid: int) -> bool:
+    def _pid_alive(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return False
         except PermissionError:
             return True
-        # Check if zombie on Linux.
-        try:
-            stat_txt = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="ignore")
-            rparen = stat_txt.rfind(")")
-            if rparen != -1 and stat_txt[rparen + 2 :].startswith("Z"):
-                return False
-        except OSError:
-            pass
+        # Check if zombie when procfs is available.
+        if self._proc_dir.is_dir():
+            try:
+                stat_txt = (self._proc_dir / str(pid) / "stat").read_text(
+                    encoding="utf-8", errors="ignore"
+                )
+                rparen = stat_txt.rfind(")")
+                if rparen != -1 and stat_txt[rparen + 2 :].startswith("Z"):
+                    return False
+            except OSError:
+                pass
         return True
 
     def _find_leaked_temp_and_sockets(
@@ -937,10 +1397,10 @@ class VisorSandboxManager:
         if probe_report.is_file():
             try:
                 data = json.loads(probe_report.read_text(encoding="utf-8"))
-                port = data.get("port")
+                port = data.get("port") if isinstance(data, dict) else None
                 if isinstance(port, int) and 1 <= port <= 65535:
                     sandbox.monitored_ports.add(port)
-            except (OSError, ValueError, TypeError):
+            except (OSError, ValueError, TypeError, AttributeError):
                 pass
 
         for port in sorted(sandbox.monitored_ports):
@@ -993,13 +1453,21 @@ class VisorSandboxManager:
         violations: List[str] = []
 
         orphan_pids = self._find_orphan_pids(sandbox)
+        live_pgids = self._find_live_pgids(sandbox)
         reaped_pids: List[int] = []
-        if orphan_pids:
-            violations.append(f"orphan_pids_detected:{orphan_pids}")
-            reaped_pids = self._reap_orphan_pids(sandbox, orphan_pids)
+        if orphan_pids or live_pgids:
+            if orphan_pids:
+                violations.append(f"orphan_pids_detected:{orphan_pids}")
+            else:
+                violations.append(f"orphan_pgids_detected:{live_pgids}")
+            reaped_pids, unreaped_pgids = self._reap_orphan_pids(
+                sandbox, orphan_pids, live_pgids=live_pgids
+            )
             still_alive = [p for p in orphan_pids if p not in reaped_pids]
             if still_alive:
                 violations.append(f"orphan_pids_unreaped:{still_alive}")
+            if unreaped_pgids:
+                violations.append(f"orphan_pgids_unreaped:{unreaped_pgids}")
 
         leaked_temp, lingering_sockets = self._find_leaked_temp_and_sockets(sandbox)
         if leaked_temp:
@@ -1013,8 +1481,26 @@ class VisorSandboxManager:
         # Remove sandbox directory tree without touching CAS hardlink inode permissions.
         self._force_rmtree(sandbox.sandbox_root, allow_chmod_files=False)
         workspace_removed = not sandbox.sandbox_root.exists()
-        if not workspace_removed:
+        if workspace_removed:
+            with self._state_lock:
+                self._known_run_dirs.discard(sandbox.sandbox_root.name)
+        else:
             violations.append("workspace_not_removed")
+
+        # On unenforced hosts, also remove any stray escape files left in runs_root
+        # (already flagged by audit_security before teardown).
+        if not self.fs_confinement_enforced and self.runs_root.exists():
+            with self._state_lock:
+                known_runs = set(self._known_run_dirs)
+            for child in list(self.runs_root.iterdir()):
+                if child.name not in known_runs:
+                    try:
+                        if child.is_dir() and not child.is_symlink():
+                            self._force_rmtree(child, allow_chmod_files=True)
+                        else:
+                            child.unlink()
+                    except OSError:
+                        pass
 
         cleanup_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
         result = CleanupAuditResult(

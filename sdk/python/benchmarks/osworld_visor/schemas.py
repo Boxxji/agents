@@ -165,6 +165,8 @@ class SecurityAuditResult:
 
     escaped: bool = False
     violations: List[str] = field(default_factory=list)
+    fs_confinement: str = "unenforced_posix_audit_only"
+    fs_confinement_enforced: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
