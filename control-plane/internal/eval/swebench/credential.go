@@ -35,6 +35,7 @@ func DefaultSandboxCredentialPolicy(tenantID string) CredentialPolicy {
 		RequireExplicitScopes: true,
 		ForbiddenEnvVars: []string{
 			"HANZO_ADMIN_KEY",
+			"HANZO_ADMIN_TOKEN",
 			"HANZO_BILLING_KEY",
 			"HANZO_CLOUD_TOKEN",
 			"HANZO_IAM_SECRET",
@@ -49,6 +50,11 @@ func DefaultSandboxCredentialPolicy(tenantID string) CredentialPolicy {
 			"GIT_ASKPASS",
 			"SSH_AUTH_SOCK",
 			"DATABASE_URL",
+			"GOLD_PATCH",
+			"REFERENCE_FIX",
+			"SWEBENCH_GOLD",
+			"TEST_PATCH",
+			"LD_PRELOAD",
 		},
 	}
 }
@@ -191,4 +197,17 @@ func redactSecret(secret string) string {
 		return "[REDACTED]"
 	}
 	return trimmed[:4] + "..." + trimmed[len(trimmed)-2:]
+}
+
+// RedactSecretsInLog scrubs all occurrences of non-empty secret values from log/error text.
+func RedactSecretsInLog(text string, secrets ...string) string {
+	out := text
+	for _, s := range secrets {
+		trimmed := strings.TrimSpace(s)
+		if len(trimmed) < 4 {
+			continue
+		}
+		out = strings.ReplaceAll(out, trimmed, "[REDACTED]")
+	}
+	return out
 }

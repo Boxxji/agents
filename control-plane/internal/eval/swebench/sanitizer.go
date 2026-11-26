@@ -26,17 +26,20 @@ var (
 type ViolationCode string
 
 const (
-	ViolationRemotePresent     ViolationCode = "remote_present"
-	ViolationTagPresent        ViolationCode = "tag_present"
-	ViolationExtraBranch       ViolationCode = "extra_branch_present"
-	ViolationStashPresent      ViolationCode = "stash_present"
-	ViolationReflogPresent     ViolationCode = "reflog_present"
-	ViolationStateFilePresent  ViolationCode = "git_state_file_present"
-	ViolationHeadMismatch      ViolationCode = "head_commit_mismatch"
-	ViolationFutureCommit      ViolationCode = "future_commit_present"
-	ViolationUnreachableCommit ViolationCode = "unreachable_commit_present"
-	ViolationLeakArtifact      ViolationCode = "leak_artifact_present"
-	ViolationHarnessTampered   ViolationCode = "harness_tampered"
+	ViolationRemotePresent       ViolationCode = "remote_present"
+	ViolationTagPresent          ViolationCode = "tag_present"
+	ViolationExtraBranch         ViolationCode = "extra_branch_present"
+	ViolationStashPresent        ViolationCode = "stash_present"
+	ViolationReflogPresent       ViolationCode = "reflog_present"
+	ViolationStateFilePresent    ViolationCode = "git_state_file_present"
+	ViolationHeadMismatch        ViolationCode = "head_commit_mismatch"
+	ViolationFutureCommit        ViolationCode = "future_commit_present"
+	ViolationUnreachableCommit   ViolationCode = "unreachable_commit_present"
+	ViolationLeakArtifact        ViolationCode = "leak_artifact_present"
+	ViolationHarnessTampered     ViolationCode = "harness_tampered"
+	ViolationSolutionFingerprint ViolationCode = "solution_fingerprint_leak"
+	ViolationSymlinkEscape       ViolationCode = "symlink_escape"
+	ViolationProtectedPathInDiff ViolationCode = "protected_path_in_diff"
 )
 
 // LeakageViolation describes a specific anti-leakage or anti-tamper finding.
@@ -53,6 +56,7 @@ type SanitizeConfig struct {
 	AllowedRemotes        []string          `json:"allowed_remotes,omitempty"`
 	ForbiddenCommits      []string          `json:"forbidden_commits,omitempty"`
 	ForbiddenPaths        []string          `json:"forbidden_paths,omitempty"`
+	ForbiddenFingerprints []string          `json:"forbidden_fingerprints,omitempty"`
 	ExpectedHarnessHashes map[string]string `json:"expected_harness_hashes,omitempty"`
 	PruneUnreachable      bool              `json:"prune_unreachable"`
 }
@@ -133,8 +137,11 @@ func SanitizeGitWorkspace(ctx context.Context, repoDir string, cfg SanitizeConfi
 	}
 
 	if cfg.PruneUnreachable {
-		if _, err := runGit(ctx, repoDir, "reflog", "expire", "--expire=now", "--all"); err != nil {
+		if _, err := runGit(ctx, repoDir, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"); err != nil {
 			return nil, fmt.Errorf("expire reflogs: %w", err)
+		}
+		if _, err := runGit(ctx, repoDir, "repack", "-Ad", "-q"); err != nil {
+			return nil, fmt.Errorf("repack unreachable objects: %w", err)
 		}
 		if _, err := runGit(ctx, repoDir, "prune", "--expire=now"); err != nil {
 			return nil, fmt.Errorf("prune unreachable objects: %w", err)
@@ -142,6 +149,9 @@ func SanitizeGitWorkspace(ctx context.Context, repoDir string, cfg SanitizeConfi
 		if _, err := runGit(ctx, repoDir, "gc", "--prune=now", "--quiet"); err != nil {
 			return nil, fmt.Errorf("gc prune=now: %w", err)
 		}
+	}
+	if _, err := runGit(ctx, repoDir, "clean", "-fdx"); err != nil {
+		return nil, fmt.Errorf("clean untracked files: %w", err)
 	}
 
 	report, err := VerifyWorkspaceClean(ctx, repoDir, cfg)
@@ -249,6 +259,9 @@ func VerifyWorkspaceClean(ctx context.Context, repoDir string, cfg SanitizeConfi
 	if err := checkForbiddenWorkspacePaths(repoDir, cfg, report); err != nil {
 		return nil, err
 	}
+	if err := checkSolutionFingerprints(ctx, repoDir, cfg.ForbiddenFingerprints, report); err != nil {
+		return nil, err
+	}
 	if err := checkHarnessIntegrity(repoDir, cfg.ExpectedHarnessHashes, report); err != nil {
 		return nil, err
 	}
@@ -256,6 +269,60 @@ func VerifyWorkspaceClean(ctx context.Context, repoDir string, cfg SanitizeConfi
 	report.Clean = len(report.Violations) == 0
 	if !report.Clean {
 		return report, fmt.Errorf("%w: %d violation(s)", ErrLeakageDetected, len(report.Violations))
+	}
+	return report, nil
+}
+
+// VerifyPostExecutionIntegrity runs fail-closed anti-tampering checks after agent
+// execution and before test grading: protected test SHA-256 verification, git diff
+// protected-path guard, symlink host-escape detection, and forbidden artifact checks.
+func VerifyPostExecutionIntegrity(ctx context.Context, repoDir string, cfg SanitizeConfig) (*WorkspaceAuditReport, error) {
+	if err := validateRepoDir(repoDir); err != nil {
+		return nil, err
+	}
+	report := &WorkspaceAuditReport{
+		WorkspacePath: repoDir,
+		AuditedAt:     time.Now().UTC(),
+	}
+	if headOut, err := runGit(ctx, repoDir, "rev-parse", "HEAD"); err == nil {
+		report.HeadCommit = strings.ToLower(strings.TrimSpace(headOut))
+	}
+
+	// 1. Protected harness/test files must exist, not be symlinks, and match SHA-256.
+	if err := checkHarnessIntegrity(repoDir, cfg.ExpectedHarnessHashes, report); err != nil {
+		return nil, err
+	}
+
+	// 2. git diff must not touch any protected test file.
+	if len(cfg.ExpectedHarnessHashes) > 0 {
+		diffOut, err := runGit(ctx, repoDir, "diff", "--name-only")
+		if err == nil {
+			for _, changed := range splitNonEmptyLines(diffOut) {
+				norm := filepath.ToSlash(filepath.Clean(changed))
+				if _, protected := cfg.ExpectedHarnessHashes[norm]; protected {
+					report.Violations = append(report.Violations, LeakageViolation{
+						Code:   ViolationProtectedPathInDiff,
+						Target: norm,
+						Detail: fmt.Sprintf("agent diff modifies protected test file %q", norm),
+					})
+				}
+			}
+		}
+	}
+
+	// 3. Walk workspace (excluding .git) to block symlinks escaping workspace root or targeting .git.
+	if err := checkSymlinkEscapes(repoDir, report); err != nil {
+		return nil, err
+	}
+
+	// 4. Re-check forbidden leak artifacts.
+	if err := checkForbiddenWorkspacePaths(repoDir, cfg, report); err != nil {
+		return nil, err
+	}
+
+	report.Clean = len(report.Violations) == 0
+	if !report.Clean {
+		return report, fmt.Errorf("%w: %d post-exec integrity violation(s)", ErrLeakageDetected, len(report.Violations))
 	}
 	return report, nil
 }
@@ -482,6 +549,169 @@ func checkForbiddenWorkspacePaths(repoDir string, cfg SanitizeConfig, report *Wo
 	return nil
 }
 
+func checkSolutionFingerprints(ctx context.Context, repoDir string, fingerprints []string, report *WorkspaceAuditReport) error {
+	cleanFPs := make([]string, 0, len(fingerprints))
+	for _, fp := range fingerprints {
+		trimmed := strings.TrimSpace(fp)
+		if trimmed != "" {
+			cleanFPs = append(cleanFPs, trimmed)
+		}
+	}
+	if len(cleanFPs) == 0 {
+		return nil
+	}
+
+	// 1. Scan git log output for any forbidden solution hunk/marker.
+	if logOut, err := runGit(ctx, repoDir, "log", "--all", "--stat", "-p"); err == nil {
+		for _, fp := range cleanFPs {
+			if strings.Contains(logOut, fp) {
+				report.Violations = append(report.Violations, LeakageViolation{
+					Code:   ViolationSolutionFingerprint,
+					Target: "git log",
+					Detail: fmt.Sprintf("solution fingerprint %q leaked in git history", fp),
+				})
+			}
+		}
+	}
+
+	// 2. Scan raw .git/objects for unpruned loose/packed blobs containing solution fingerprints.
+	objectsDir := filepath.Join(repoDir, ".git", "objects")
+	if info, err := os.Stat(objectsDir); err == nil && info.IsDir() {
+		foundObj := make(map[string]bool)
+		_ = filepath.WalkDir(objectsDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			for _, fp := range cleanFPs {
+				if foundObj[fp] {
+					continue
+				}
+				if bytes.Contains(data, []byte(fp)) {
+					foundObj[fp] = true
+					rel, _ := filepath.Rel(repoDir, path)
+					report.Violations = append(report.Violations, LeakageViolation{
+						Code:   ViolationSolutionFingerprint,
+						Target: filepath.ToSlash(rel),
+						Detail: fmt.Sprintf("solution fingerprint %q found in .git/objects", fp),
+					})
+				}
+			}
+			return nil
+		})
+	}
+
+	// 3. Scan workspace files (excluding .git) for leaked solution hunks/markers.
+	_ = filepath.WalkDir(repoDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		for _, fp := range cleanFPs {
+			if bytes.Contains(data, []byte(fp)) {
+				rel, _ := filepath.Rel(repoDir, path)
+				report.Violations = append(report.Violations, LeakageViolation{
+					Code:   ViolationSolutionFingerprint,
+					Target: filepath.ToSlash(rel),
+					Detail: fmt.Sprintf("solution fingerprint %q found in workspace file", fp),
+				})
+			}
+		}
+		return nil
+	})
+
+	return nil
+}
+
+func checkSymlinkEscapes(repoDir string, report *WorkspaceAuditReport) error {
+	rootReal, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		rootReal = filepath.Clean(repoDir)
+	}
+	gitReal := filepath.Join(rootReal, ".git")
+
+	return filepath.WalkDir(repoDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if d.Type()&os.ModeSymlink == 0 {
+			return nil
+		}
+		rel, _ := filepath.Rel(repoDir, path)
+		relSlash := filepath.ToSlash(rel)
+
+		resolved, evalErr := filepath.EvalSymlinks(path)
+		if evalErr != nil {
+			// Check raw link target for dangling symlink escaping sandbox root.
+			rawTarget, readErr := os.Readlink(path)
+			if readErr != nil {
+				report.Violations = append(report.Violations, LeakageViolation{
+					Code:   ViolationSymlinkEscape,
+					Target: relSlash,
+					Detail: fmt.Sprintf("unreadable symlink %q in workspace", relSlash),
+				})
+				return nil
+			}
+			candidate := rawTarget
+			if !filepath.IsAbs(candidate) {
+				candidate = filepath.Join(filepath.Dir(path), rawTarget)
+			}
+			candidate = filepath.Clean(candidate)
+			if !isPathWithinRoot(candidate, rootReal) {
+				report.Violations = append(report.Violations, LeakageViolation{
+					Code:   ViolationSymlinkEscape,
+					Target: relSlash,
+					Detail: fmt.Sprintf("dangling symlink %q targets outside workspace -> %s", relSlash, candidate),
+				})
+			}
+			return nil
+		}
+
+		if !isPathWithinRoot(resolved, rootReal) {
+			report.Violations = append(report.Violations, LeakageViolation{
+				Code:   ViolationSymlinkEscape,
+				Target: relSlash,
+				Detail: fmt.Sprintf("symlink %q escapes sandbox root -> %s", relSlash, resolved),
+			})
+			return nil
+		}
+		if isPathWithinRoot(resolved, gitReal) {
+			report.Violations = append(report.Violations, LeakageViolation{
+				Code:   ViolationSymlinkEscape,
+				Target: relSlash,
+				Detail: fmt.Sprintf("symlink %q targets internal .git metadata", relSlash),
+			})
+		}
+		return nil
+	})
+}
+
+func isPathWithinRoot(candidate, root string) bool {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 func checkHarnessIntegrity(repoDir string, expected map[string]string, report *WorkspaceAuditReport) error {
 	if len(expected) == 0 {
 		return nil
@@ -500,6 +730,14 @@ func checkHarnessIntegrity(repoDir string, expected map[string]string, report *W
 				Code:   ViolationHarnessTampered,
 				Target: rel,
 				Detail: fmt.Sprintf("harness path %q escapes workspace root", rel),
+			})
+			continue
+		}
+		if linfo, lerr := os.Lstat(abs); lerr == nil && linfo.Mode()&os.ModeSymlink != 0 {
+			report.Violations = append(report.Violations, LeakageViolation{
+				Code:   ViolationSymlinkEscape,
+				Target: rel,
+				Detail: fmt.Sprintf("protected harness file %q was replaced with a symlink", rel),
 			})
 			continue
 		}

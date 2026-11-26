@@ -10,24 +10,27 @@ import (
 
 // BackendSummary aggregates task resolution, timing, cost, and IO metrics for one backend.
 type BackendSummary struct {
-	Backend           StorageBackend `json:"backend"`
-	TotalTasks        int            `json:"total_tasks"`
-	PassedTasks       int            `json:"passed_tasks"`
-	BlockedTasks      int            `json:"blocked_tasks"`
-	FailedTasks       int            `json:"failed_tasks"`
-	PassRate          float64        `json:"pass_rate"`
-	TotalWallTimeMS   int64          `json:"total_wall_time_ms"`
-	MeanWallTimeMS    float64        `json:"mean_wall_time_ms"`
-	P50WallTimeMS     int64          `json:"p50_wall_time_ms"`
-	P95WallTimeMS     int64          `json:"p95_wall_time_ms"`
-	TotalTokensIn     int64          `json:"total_tokens_in"`
-	TotalTokensOut    int64          `json:"total_tokens_out"`
-	TotalTokensCached int64          `json:"total_tokens_cached"`
-	TotalModelCostUSD float64        `json:"total_model_cost_usd"`
-	MeanModelCostUSD  float64        `json:"mean_model_cost_usd"`
-	AggregateIO       IOCounters     `json:"aggregate_io"`
-	ReadThroughputMBs float64        `json:"read_throughput_mb_s"`
-	WriteThroughputMB float64        `json:"write_throughput_mb_s"`
+	Backend            StorageBackend `json:"backend"`
+	TotalTasks         int            `json:"total_tasks"`
+	PassedTasks        int            `json:"passed_tasks"`
+	BlockedTasks       int            `json:"blocked_tasks"`
+	TamperedTasks      int            `json:"tampered_tasks,omitempty"`
+	FailedTasks        int            `json:"failed_tasks"`
+	PassRate           float64        `json:"pass_rate"`
+	TotalWallTimeMS    int64          `json:"total_wall_time_ms"`
+	MeanWallTimeMS     float64        `json:"mean_wall_time_ms"`
+	P50WallTimeMS      int64          `json:"p50_wall_time_ms"`
+	P95WallTimeMS      int64          `json:"p95_wall_time_ms"`
+	P99WallTimeMS      int64          `json:"p99_wall_time_ms"`
+	TotalTokensIn      int64          `json:"total_tokens_in"`
+	TotalTokensOut     int64          `json:"total_tokens_out"`
+	TotalTokensCached  int64          `json:"total_tokens_cached"`
+	TotalModelCostUSD  float64        `json:"total_model_cost_usd"`
+	MeanModelCostUSD   float64        `json:"mean_model_cost_usd"`
+	CostPerResolvedUSD float64        `json:"cost_per_resolved_usd,omitempty"`
+	AggregateIO        IOCounters     `json:"aggregate_io"`
+	ReadThroughputMBs  float64        `json:"read_throughput_mb_s"`
+	WriteThroughputMB  float64        `json:"write_throughput_mb_s"`
 }
 
 // VFSvsNVMeDelta captures comparative ratios and deltas of vfs against plain NVMe.
@@ -151,6 +154,9 @@ func summarizeBackend(backend StorageBackend, outcomes []TaskOutcome) BackendSum
 	for _, o := range outcomes {
 		if o.Passed {
 			s.PassedTasks++
+		} else if o.Status == StatusTampered || o.Tampered {
+			s.TamperedTasks++
+			s.BlockedTasks++
 		} else if o.Status == StatusLeakageBlocked || o.Status == StatusPolicyBlocked {
 			s.BlockedTasks++
 		} else {
@@ -171,7 +177,11 @@ func summarizeBackend(backend StorageBackend, outcomes []TaskOutcome) BackendSum
 	s.MeanWallTimeMS = float64(s.TotalWallTimeMS) / n
 	s.P50WallTimeMS = percentileInt64(wallTimes, 0.50)
 	s.P95WallTimeMS = percentileInt64(wallTimes, 0.95)
+	s.P99WallTimeMS = percentileInt64(wallTimes, 0.99)
 	s.MeanModelCostUSD = s.TotalModelCostUSD / n
+	if s.PassedTasks > 0 {
+		s.CostPerResolvedUSD = s.TotalModelCostUSD / float64(s.PassedTasks)
+	}
 
 	if s.AggregateIO.ReadLatencyNS > 0 {
 		sec := float64(s.AggregateIO.ReadLatencyNS) / 1e9

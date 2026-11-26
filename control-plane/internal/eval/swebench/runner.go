@@ -27,22 +27,31 @@ const (
 	StatusTimeout        TaskStatus = "timeout"
 	StatusLeakageBlocked TaskStatus = "leakage_blocked"
 	StatusPolicyBlocked  TaskStatus = "policy_blocked"
+	StatusTampered       TaskStatus = "tampered"
 	StatusError          TaskStatus = "error"
 )
 
 // IOCounters captures filesystem IO telemetry collected during sandbox execution.
 type IOCounters struct {
-	Backend        StorageBackend `json:"backend"`
-	ReadOps        int64          `json:"read_ops"`
-	WriteOps       int64          `json:"write_ops"`
-	MetadataOps    int64          `json:"metadata_ops"`
-	SyncOps        int64          `json:"sync_ops"`
-	BytesRead      int64          `json:"bytes_read"`
-	BytesWritten   int64          `json:"bytes_written"`
-	ReadLatencyNS  int64          `json:"read_latency_ns"`
-	WriteLatencyNS int64          `json:"write_latency_ns"`
-	CacheHits      int64          `json:"cache_hits"`
-	CacheMisses    int64          `json:"cache_misses"`
+	Backend         StorageBackend `json:"backend"`
+	ReadOps         int64          `json:"read_ops"`
+	WriteOps        int64          `json:"write_ops"`
+	MetadataOps     int64          `json:"metadata_ops"`
+	SyncOps         int64          `json:"sync_ops"`
+	BytesRead       int64          `json:"bytes_read"`
+	BytesWritten    int64          `json:"bytes_written"`
+	DirtyBytes      int64          `json:"dirty_bytes,omitempty"`
+	HardlinkedFiles int64          `json:"hardlinked_files,omitempty"`
+	ReadLatencyNS   int64          `json:"read_latency_ns"`
+	WriteLatencyNS  int64          `json:"write_latency_ns"`
+	SnapshotCloneMS float64        `json:"snapshot_clone_ms,omitempty"`
+	CacheHits       int64          `json:"cache_hits"`
+	CacheMisses     int64          `json:"cache_misses"`
+	ProcIOAvailable bool           `json:"proc_io_available,omitempty"`
+	ProcRChar       int64          `json:"proc_rchar,omitempty"`
+	ProcWChar       int64          `json:"proc_wchar,omitempty"`
+	ProcSyscR       int64          `json:"proc_syscr,omitempty"`
+	ProcSyscW       int64          `json:"proc_syscw,omitempty"`
 }
 
 // TotalOps returns the sum of read, write, metadata, and sync operations.
@@ -58,25 +67,49 @@ func (io *IOCounters) Add(other IOCounters) {
 	io.SyncOps += other.SyncOps
 	io.BytesRead += other.BytesRead
 	io.BytesWritten += other.BytesWritten
+	io.DirtyBytes += other.DirtyBytes
+	io.HardlinkedFiles += other.HardlinkedFiles
 	io.ReadLatencyNS += other.ReadLatencyNS
 	io.WriteLatencyNS += other.WriteLatencyNS
+	io.SnapshotCloneMS += other.SnapshotCloneMS
 	io.CacheHits += other.CacheHits
 	io.CacheMisses += other.CacheMisses
+	if other.ProcIOAvailable {
+		io.ProcIOAvailable = true
+	}
+	io.ProcRChar += other.ProcRChar
+	io.ProcWChar += other.ProcWChar
+	io.ProcSyscR += other.ProcSyscR
+	io.ProcSyscW += other.ProcSyscW
 }
 
 // TaskOutcome holds the verified execution metrics for one (task, backend) pair.
 type TaskOutcome struct {
 	InstanceID        string                 `json:"instance_id"`
 	Backend           StorageBackend         `json:"backend"`
+	PolicyName        string                 `json:"policy_name,omitempty"`
 	Passed            bool                   `json:"passed"`
+	Tampered          bool                   `json:"tampered,omitempty"`
 	Status            TaskStatus             `json:"status"`
 	WallTimeMS        int64                  `json:"wall_time_ms"`
+	BootTimeMS        float64                `json:"boot_time_ms,omitempty"`
+	SetupScrubMS      float64                `json:"setup_scrub_ms,omitempty"`
+	AgentLoopMS       float64                `json:"agent_loop_ms,omitempty"`
+	PatchVerifyMS     float64                `json:"patch_verify_ms,omitempty"`
+	TestExecMS        float64                `json:"test_exec_ms,omitempty"`
+	SnapshotDiffMS    float64                `json:"snapshot_diff_ms,omitempty"`
+	FailToPassPassed  int                    `json:"fail_to_pass_passed,omitempty"`
+	FailToPassTotal   int                    `json:"fail_to_pass_total,omitempty"`
+	PassToPassPassed  int                    `json:"pass_to_pass_passed,omitempty"`
+	PassToPassTotal   int                    `json:"pass_to_pass_total,omitempty"`
+	Iterations        int                    `json:"iterations,omitempty"`
 	ModelTokensIn     int64                  `json:"model_tokens_in"`
 	ModelTokensOut    int64                  `json:"model_tokens_out"`
 	ModelTokensCached int64                  `json:"model_tokens_cached"`
 	ModelCostUSD      float64                `json:"model_cost_usd"`
 	IO                IOCounters             `json:"io"`
 	WorkspaceAudit    *WorkspaceAuditReport  `json:"workspace_audit,omitempty"`
+	PostExecAudit     *WorkspaceAuditReport  `json:"post_exec_audit,omitempty"`
 	CredentialAudit   *CredentialAuditResult `json:"credential_audit,omitempty"`
 	PatchApplied      bool                   `json:"patch_applied"`
 	Error             string                 `json:"error,omitempty"`
@@ -283,8 +316,12 @@ func (r *Runner) executeOne(ctx context.Context, spec *SubsetSpec, task TaskSpec
 	execOutcome.InstanceID = task.InstanceID
 	execOutcome.Backend = backend
 	execOutcome.IO.Backend = backend
-	execOutcome.WorkspaceAudit = outcome.WorkspaceAudit
-	execOutcome.CredentialAudit = outcome.CredentialAudit
+	if outcome.WorkspaceAudit != nil {
+		execOutcome.WorkspaceAudit = outcome.WorkspaceAudit
+	}
+	if outcome.CredentialAudit != nil {
+		execOutcome.CredentialAudit = outcome.CredentialAudit
+	}
 	if execOutcome.WallTimeMS <= 0 {
 		execOutcome.WallTimeMS = elapsedMS
 	}
